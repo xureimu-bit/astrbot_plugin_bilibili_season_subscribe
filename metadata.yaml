@@ -1,0 +1,12 @@
+name: astrbot_plugin_bilibili_season_subscribe
+desc: 订阅 B 站合集（Season/列表）并在有新视频时自动下载后发送。
+help: |-
+  指令：
+  /bili合集订阅 添加 <合集链接>
+  /bili合集订阅 删除 <season_id>
+  /bili合集订阅 列表
+  /bili合集订阅 检查
+  /bili合集订阅 重试 [season_id|全部]
+version: v1.2.1
+author: Codex
+repo: https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe

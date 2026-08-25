@@ -1,0 +1,77 @@
+{
+  "poll_interval_minutes": {
+    "description": "轮询间隔（分钟）",
+    "type": "int",
+    "hint": "建议 10-60",
+    "default": 20
+  },
+  "request_timeout_seconds": {
+    "description": "接口超时（秒）",
+    "type": "int",
+    "default": 15
+  },
+  "page_size": {
+    "description": "分页大小",
+    "type": "int",
+    "default": 30
+  },
+  "max_video_height": {
+    "description": "最大清晰度",
+    "type": "int",
+    "hint": "如 720、1080，0=不限",
+    "default": 720
+  },
+  "max_duration_seconds": {
+    "description": "最大时长（秒）",
+    "type": "int",
+    "hint": "0=不限",
+    "default": 1800
+  },
+  "max_filesize_mb": {
+    "description": "最大文件大小（MB）",
+    "type": "int",
+    "hint": "0=不限",
+    "default": 80
+  },
+  "retain_download_hours": {
+    "description": "文件保留时长（小时）",
+    "type": "int",
+    "hint": "0=发完删，-1=长期保留",
+    "default": 24
+  },
+  "preferred_video_codec": {
+    "description": "优先视频编码",
+    "type": "string",
+    "hint": "如 avc、h264、hevc",
+    "default": "avc"
+  },
+  "preferred_ext": {
+    "description": "优先输出格式",
+    "type": "string",
+    "hint": "如 mp4、mkv",
+    "default": "mp4"
+  },
+  "ffmpeg_path": {
+    "description": "ffmpeg 路径",
+    "type": "string",
+    "hint": "留空则自动查找",
+    "default": ""
+  },
+  "bilibili_sessdata": {
+    "description": "B 站 SESSDATA",
+    "type": "string",
+    "hint": "可选，412 时建议填写",
+    "default": ""
+  },
+  "bilibili_cookie_file": {
+    "description": "Cookie 文件路径",
+    "type": "string",
+    "hint": "可选，填 cookie.txt 路径",
+    "default": ""
+  },
+  "notify_on_first_subscribe": {
+    "description": "首次订阅发送历史视频",
+    "type": "bool",
+    "default": false
+  }
+}
