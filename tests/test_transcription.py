@@ -163,9 +163,76 @@ class TranscriptionTests(unittest.IsolatedAsyncioTestCase):
                 await AudioTranscriber._download(self.service, ["https://upos.bilivideo.com/audio"], path, "https://www.bilibili.com/")
 
     async def test_untrusted_media_addresses_rejected_before_request(self):
-        for url in ("https://localhost/audio", "http://upos.bilivideo.com/audio", "https://bilivideo.com.evil/audio", "https://user@bilivideo.com/audio"):
+        for url in ("https://localhost/audio", "https://127.0.0.1/audio", "https://bilivideo.com.evil/audio", "https://user@bilivideo.com/audio",
+                    "https://unrelated.akamaized.net/audio", "https://upos-hz-mirrorakam.akamaized.net.evil/audio",
+                    "https://upos.bilivideo.com:4483/audio", "https://x.mcdn.bilivideo.cn:8080/audio",
+                    "https://upos.bilivideo.com:bad/audio", "file://upos.bilivideo.com/audio"):
             with self.subTest(url=url), self.assertRaises(TranscriptionUnavailable):
                 AudioTranscriber._validate_media_url(url)
+
+    async def test_bilibili_http_links_are_upgraded_without_changing_signature(self):
+        for raw, expected in (
+            ("http://upos.bilivideo.com/audio?sign=a%2Fb&deadline=123", "https://upos.bilivideo.com/audio?sign=a%2Fb&deadline=123"),
+            ("http://upos.bilivideo.com:80/audio", "https://upos.bilivideo.com/audio"),
+            ("//upos-hz-mirrorakam.akamaized.net/audio", "https://upos-hz-mirrorakam.akamaized.net/audio"),
+            ("http://xy1x2x3x4xy.mcdn.bilivideo.cn:4483/audio", "https://xy1x2x3x4xy.mcdn.bilivideo.cn:4483/audio"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(AudioTranscriber._validate_media_url(raw), expected)
+
+    async def test_mcdn_failure_and_invalid_backup_continue_to_akamai_and_stt(self):
+        self.api.fetch_playurl.return_value = {"data": {"dash": {"audio": [{
+            "bandwidth": 65579, "baseUrl": "http://xy1x2x3x4xy.mcdn.bilivideo.cn:4483/audio",
+            "backupUrl": ["https://untrusted.example/audio", "https://upos-hz-mirrorakam.akamaized.net/audio?sign=secret"],
+        }]}}}
+        self.service._download = types.MethodType(AudioTranscriber._download, self.service)
+        seen = []
+        def handler(request):
+            seen.append(request)
+            if request.url.port == 4483:
+                return httpx.Response(403)
+            return httpx.Response(200, content=b"audio")
+        real = httpx.AsyncClient
+        with patch("bili_plugin_test.transcription.httpx.AsyncClient", side_effect=lambda **kwargs: real(transport=httpx.MockTransport(handler), **kwargs)):
+            transcript = await self.service.transcribe(base.BVID, self.detail, "a")
+        self.assertEqual(transcript.text, "转写文字\n转写文字")
+        self.assertEqual(self.provider.get_text.await_count, 2)
+        self.assertEqual([request.url.host for request in seen], ["xy1x2x3x4xy.mcdn.bilivideo.cn", "upos-hz-mirrorakam.akamaized.net"])
+        self.assertTrue(all(request.url.scheme == "https" and "cookie" not in request.headers for request in seen))
+        self.assertEqual(list(self.service.work_dir.iterdir()), [])
+
+    async def test_invalid_primary_does_not_hide_backup_or_other_bitrate(self):
+        data = {"dash": {"audio": [
+            {"bandwidth": 165153, "base_url": "https://upos.bilivideo.com/audio"},
+            {"bandwidth": 65579, "baseUrl": "https://untrusted.example/1", "backupUrl": ["https://untrusted.example/2", "https://untrusted.example/3"]},
+        ]}}
+        seen = []
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(200, content=b"audio")
+        real = httpx.AsyncClient
+        with patch("bili_plugin_test.transcription.httpx.AsyncClient", side_effect=lambda **kwargs: real(transport=httpx.MockTransport(handler), **kwargs)):
+            await AudioTranscriber._download(self.service, AudioTranscriber._audio_urls(data), self.root / "audio", "https://www.bilibili.com/")
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].url.host, "upos.bilivideo.com")
+
+    async def test_no_trusted_addresses_make_no_requests(self):
+        with patch("bili_plugin_test.transcription.httpx.AsyncClient") as client:
+            with self.assertRaisesRegex(TranscriptionUnavailable, "已检查备用"):
+                await AudioTranscriber._download(self.service, ["https://localhost/a", "https://untrusted.example/a"], self.root / "audio", "https://www.bilibili.com/")
+        client.assert_not_called()
+
+    async def test_redirect_is_not_followed_and_attempts_are_bounded_and_deduplicated(self):
+        urls = ["https://upos.bilivideo.com/1", "http://upos.bilivideo.com/1", "https://upos.bilivideo.com/2", "https://upos.bilivideo.com/3", "https://upos.bilivideo.com/4"]
+        seen = []
+        def handler(request):
+            seen.append(request)
+            return httpx.Response(302, headers={"Location": "https://localhost/secret"})
+        real = httpx.AsyncClient
+        with patch("bili_plugin_test.transcription.httpx.AsyncClient", side_effect=lambda **kwargs: real(transport=httpx.MockTransport(handler), **kwargs)):
+            with self.assertRaisesRegex(TranscriptionUnavailable, "无法下载"):
+                await AudioTranscriber._download(self.service, urls, self.root / "audio", "https://www.bilibili.com/")
+        self.assertEqual([request.url.path for request in seen], ["/1", "/2", "/3"])
 
     async def test_ffmpeg_process_is_killed_on_cancel(self):
         running = asyncio.Event()

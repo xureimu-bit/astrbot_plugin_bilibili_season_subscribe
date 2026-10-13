@@ -190,7 +190,7 @@ class VideoSummarizer:
                     label += "；使用已缓存转写"
             except TranscriptionUnavailable as exc:
                 label += f"；{exc}"
-                logger.warning("视频 %s 的语音转写未完成（%s）。", bvid, type(exc).__name__)
+                logger.warning("视频 %s 的语音转写未完成：%s。", bvid, exc)
         if len(pages) > 1:
             label += "；多 P 视频仅处理第 1 P"
         # Reserve most of the input budget for captions, even when descriptions are long.

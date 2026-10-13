@@ -135,32 +135,59 @@ class AudioTranscriber:
         streams = (data.get("dash") or {}).get("audio") or []
         if streams:
             # Low bitrate is sufficient for speech and saves download traffic.
-            stream = min(streams, key=lambda item: int(item.get("bandwidth") or 0))
-            urls = [stream.get("baseUrl") or stream.get("base_url")]
-            urls += stream.get("backupUrl") or stream.get("backup_url") or []
+            urls = []
+            for stream in sorted(streams, key=lambda item: int(item.get("bandwidth") or 0))[:3]:
+                urls.append(stream.get("baseUrl") or stream.get("base_url"))
+                urls.extend((stream.get("backupUrl") or stream.get("backup_url") or [])[:3])
         else:
             progressive = data.get("durl") or []
             if len(progressive) != 1:
                 raise TranscriptionUnavailable("未找到可用于转写的单一媒体流")
             urls = [progressive[0].get("url")]
             urls += progressive[0].get("backup_url") or []
-        return [url for url in urls if isinstance(url, str) and url][:3]
+        return list(dict.fromkeys(url for url in urls if isinstance(url, str) and url))[:12]
 
     @staticmethod
     def _validate_media_url(url):
-        parsed = urlparse(url)
-        host = parsed.hostname or ""
         domains = ("bilivideo.com", "bilivideo.cn", "hdslb.com", "bilibili.com")
-        if (parsed.scheme != "https" or parsed.username or parsed.password
-                or parsed.port not in {None, 443}
-                or not any(host == domain or host.endswith("." + domain) for domain in domains)):
-            raise TranscriptionUnavailable("媒体地址不属于支持的 B 站 CDN")
+        # This exact Akamai host is returned by Bilibili's own playurl API.
+        # Do not trust arbitrary tenants under akamaized.net.
+        overseas_hosts = {"upos-hz-mirrorakam.akamaized.net"}
+        try:
+            if url.startswith("//"):
+                url = "https:" + url
+            parsed = urlparse(url)
+            host = parsed.hostname or ""
+            allowed = host in overseas_hosts or any(host == domain or host.endswith("." + domain) for domain in domains)
+            mcdn = any(host.endswith(".mcdn." + domain) for domain in ("bilivideo.cn", "bilivideo.com"))
+            port = parsed.port
+            if (not allowed or parsed.username is not None or parsed.password is not None
+                    or parsed.scheme not in {"http", "https"}
+                    or port not in ({None, 80, 443, 4483} if mcdn else {None, 80, 443})):
+                raise ValueError("Unsupported CDN address")
+            # Upgrade API-supplied HTTP links; no plaintext requests are sent.
+            if parsed.scheme == "http":
+                netloc = host if port in {None, 80} else f"{host}:{port}"
+                parsed = parsed._replace(scheme="https", netloc=netloc)
+            elif port == 80:
+                raise ValueError("Unsupported HTTPS port")
+            return parsed.geturl()
+        except (ValueError, TypeError) as exc:
+            raise TranscriptionUnavailable("媒体地址不属于支持的 B 站 CDN") from exc
 
     async def _download(self, urls, destination, referer):
         headers = self.api_client.build_sync_headers(referer)
         headers = {key: value for key, value in headers.items() if key.lower() != "cookie"}
-        for url in urls:
-            self._validate_media_url(url)
+        attempted = set()
+        for candidate in urls[:12]:
+            try:
+                url = self._validate_media_url(candidate)
+            except TranscriptionUnavailable:
+                # An unsupported primary must not hide a usable backup audio URL.
+                continue
+            if url in attempted:
+                continue
+            attempted.add(url)
             try:
                 async with httpx.AsyncClient(timeout=self.api_client.timeout_seconds, follow_redirects=False) as client:
                     async with client.stream("GET", url, headers=headers) as response:
@@ -179,6 +206,10 @@ class AudioTranscriber:
                 return
             except httpx.HTTPError:
                 destination.unlink(missing_ok=True)
+            if len(attempted) >= 3:
+                break
+        if not attempted:
+            raise TranscriptionUnavailable("媒体地址不属于支持的 B 站 CDN（已检查备用音轨）")
         raise TranscriptionUnavailable("无法下载 B 站音讯")
 
     async def _extract_chunks(self, ffmpeg, source, root):
