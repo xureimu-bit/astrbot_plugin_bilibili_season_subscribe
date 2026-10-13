@@ -2,11 +2,13 @@
   <title id="title">B 站合集订阅 · AstrBot</title>
   <desc id="desc">自动推送新视频，让 AI 帮你抓重点。合集追更、字幕总结、聊天调用。</desc>
   <defs>
+    <clipPath id="canvas"><rect width="1280" height="340" rx="24"/></clipPath>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#171a30"/><stop offset="1" stop-color="#101522"/></linearGradient>
     <radialGradient id="pink"><stop stop-color="#ed6c9d" stop-opacity=".17"/><stop offset="1" stop-color="#ed6c9d" stop-opacity="0"/></radialGradient>
     <radialGradient id="cyan"><stop stop-color="#67d9e8" stop-opacity=".14"/><stop offset="1" stop-color="#67d9e8" stop-opacity="0"/></radialGradient>
     <linearGradient id="accent"><stop stop-color="#ff78a6"/><stop offset="1" stop-color="#66d9e8"/></linearGradient>
   </defs>
+  <g clip-path="url(#canvas)">
   <rect width="1280" height="340" rx="24" fill="url(#bg)"/>
   <ellipse cx="260" cy="38" rx="430" ry="275" fill="url(#pink)"/>
   <ellipse cx="1110" cy="320" rx="400" ry="300" fill="url(#cyan)"/>
@@ -29,12 +31,13 @@
     <circle cx="995" cy="142" r="30" fill="#ff78a6" fill-opacity=".17"/>
     <path d="M987 124 L1014 142 L987 160 Z" fill="#ff9fbe"/>
     <circle cx="883" cy="221" r="4" fill="#ff78a6"/>
-    <text x="897" y="226" fill="#dde1ef" font-size="12" font-weight="700" letter-spacing="1.4">NEW EPISODE</text>
+    <text x="897" y="226" fill="#dde1ef" font-size="12" font-weight="700" letter-spacing="1.4">NEW</text>
     <rect x="968" y="188" width="252" height="116" rx="15" fill="#1a2d38" stroke="#5abaca" stroke-opacity=".65"/>
     <path d="M992 210 L995 219 L1004 222 L995 225 L992 234 L989 225 L980 222 L989 219 Z" fill="#80e0ec"/>
     <text x="1015" y="227" fill="#b2eef5" font-size="13" font-weight="700" letter-spacing="1.5">AI SUMMARY</text>
     <rect x="986" y="246" width="185" height="5" rx="2.5" fill="#92b7c4" fill-opacity=".6"/>
     <rect x="986" y="261" width="210" height="5" rx="2.5" fill="#92b7c4" fill-opacity=".35"/>
     <rect x="986" y="276" width="139" height="5" rx="2.5" fill="#92b7c4" fill-opacity=".35"/>
+  </g>
   </g>
 </svg>
