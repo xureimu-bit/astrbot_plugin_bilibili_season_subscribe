@@ -30,7 +30,12 @@ def install_astrbot_stubs():
     event = modules["astrbot.api.event"]
     event.AstrMessageEvent = object
     event.MessageChain = list
-    event.filter = types.SimpleNamespace(command=lambda *args: lambda fn: fn)
+    def llm_tool(name):
+        def register_tool(fn):
+            fn._test_llm_tool_name = name
+            return fn
+        return register_tool
+    event.filter = types.SimpleNamespace(command=lambda *args: lambda fn: fn, llm_tool=llm_tool)
 
     class Star:
         def __init__(self, context):
@@ -359,6 +364,110 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
         replies = [reply async for reply in self.plugin.bili_season_subscribe(event)]
         self.assertIn("手动摘要", replies[0])
         self.plugin.summarizer.summarize.assert_awaited_once_with({"bvid": BVID}, "a")
+
+    async def test_llm_tools_are_registered_with_distinct_names(self):
+        tools = ("bili_list_subscribed_seasons", "bili_summarize_video", "bili_summarize_latest_video")
+        for name in tools:
+            self.assertEqual(getattr(self.plugin, name)._test_llm_tool_name, name)
+
+    async def test_llm_latest_selects_by_publication_time_without_state_changes(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        latest = {"bvid": BVID, "title": "最新一期", "pubdate": 300}
+        self.plugin.season_client.fetch_season.return_value["videos"] = [
+            latest, {"bvid": "BV2xx411c7mD", "pubdate": 100}, {"bvid": "BV3xx411c7mD", "pubdate": 200},
+        ]
+        self.plugin.summarizer.summarize = AsyncMock(return_value="字幕摘要")
+        before = self.plugin.store.data_file.read_text(encoding="utf-8")
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        result = await self.plugin.bili_summarize_latest_video(event, "")
+        self.assertIn("最新一期", result)
+        self.assertIn("字幕摘要", result)
+        self.assertIn(BVID, result)
+        self.plugin.summarizer.summarize.assert_awaited_once_with(latest, "a")
+        self.plugin.downloader.download.assert_not_called()
+        self.context.send_message.assert_not_called()
+        self.assertEqual(before, self.plugin.store.data_file.read_text(encoding="utf-8"))
+
+    async def test_llm_tools_never_access_another_sessions_subscriptions(self):
+        self.subscription.subscribers = [main.Subscriber("private-other", "hidden", "now")]
+        self.subscription.season_title = "不该泄漏的合集"
+        await self.plugin.store.upsert_subscription(self.subscription)
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        listed = await self.plugin.bili_list_subscribed_seasons(event)
+        result = await self.plugin.bili_summarize_latest_video(event, "2")
+        self.assertIn("没有订阅", listed)
+        self.assertIn("没有订阅", result)
+        self.assertNotIn("不该泄漏", listed + result)
+        self.plugin.season_client.fetch_season.assert_not_called()
+
+    async def test_llm_multiple_seasons_requires_user_selection(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        second = main.SeasonSubscription("1", "3", "其他合集", "UP", "url", subscribers=self.subscription.subscribers)
+        await self.plugin.store.upsert_subscription(second)
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        result = await self.plugin.bili_summarize_latest_video(event, "")
+        self.assertIn("请先让用户指定", result)
+        self.assertIn("其他合集", result)
+        self.plugin.season_client.fetch_season.assert_not_called()
+        self.assertIn("1:3", await self.plugin.bili_list_subscribed_seasons(event))
+
+    async def test_llm_can_select_season_by_name_id_or_unique_identifier(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        await self.plugin.store.upsert_subscription(main.SeasonSubscription("1", "3", "其他合集", "UP", "url", subscribers=self.subscription.subscribers))
+        self.plugin.season_client.fetch_season.return_value["videos"] = [{**self.video, "pubdate": 100}]
+        self.plugin.summarizer.summarize = AsyncMock(return_value="摘要")
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        for selector in ("合集", "2", "1:2"):
+            with self.subTest(selector=selector):
+                result = await self.plugin.bili_summarize_latest_video(event, selector)
+                self.assertIn("摘要", result)
+                self.plugin.season_client.fetch_season.assert_awaited_with("1", "2")
+
+    async def test_llm_unmatched_selector_does_not_fetch_unknown_collection(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        result = await self.plugin.bili_summarize_latest_video(types.SimpleNamespace(unified_msg_origin="a"), "someone-else")
+        self.assertIn("没有匹配", result)
+        self.plugin.season_client.fetch_season.assert_not_called()
+
+    async def test_llm_latest_handles_empty_and_undated_playlists(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        self.plugin.summarizer.summarize = AsyncMock()
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        self.plugin.season_client.fetch_season.return_value["videos"] = []
+        self.assertIn("没有可总结", await self.plugin.bili_summarize_latest_video(event, ""))
+        self.plugin.season_client.fetch_season.return_value["videos"] = [self.video]
+        self.assertIn("无法可靠判断", await self.plugin.bili_summarize_latest_video(event, ""))
+        self.plugin.summarizer.summarize.assert_not_called()
+
+    async def test_llm_video_tool_works_with_automatic_summary_off(self):
+        self.plugin.summarizer.summarize = AsyncMock(return_value="字幕摘要（资料已截断）")
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        result = await self.plugin.bili_summarize_video(event, f"https://www.bilibili.com/video/{BVID}")
+        self.assertIn("资料已截断", result)
+        self.assertIn(BVID, result)
+        self.plugin.summarizer.summarize.assert_awaited_once_with({"bvid": BVID}, "a")
+        self.context.send_message.assert_not_called()
+        self.assertIn("有效的 BV", await self.plugin.bili_summarize_video(event, "invalid"))
+
+    async def test_llm_tool_errors_return_explanation_and_propagate_cancel(self):
+        event = types.SimpleNamespace(unified_msg_origin="a")
+        self.plugin.summarizer.summarize = AsyncMock(side_effect=RuntimeError("model unavailable"))
+        self.assertIn("不要编造", await self.plugin.bili_summarize_video(event, BVID))
+        await self.plugin.store.upsert_subscription(self.subscription)
+        self.plugin.season_client.fetch_season.side_effect = RuntimeError("network error")
+        self.assertIn("不要编造", await self.plugin.bili_summarize_latest_video(event, ""))
+        self.plugin.summarizer.summarize.side_effect = asyncio.CancelledError()
+        with self.assertRaises(asyncio.CancelledError):
+            await self.plugin.bili_summarize_video(event, BVID)
+
+    async def test_llm_latest_has_overall_timeout_for_collection_fetch(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        async def slow(*args):
+            await asyncio.sleep(10)
+        self.plugin.season_client.fetch_season.side_effect = slow
+        self.plugin.summarizer.timeout = 0.01
+        result = await self.plugin.bili_summarize_latest_video(types.SimpleNamespace(unified_msg_origin="a"), "")
+        self.assertIn("无法取得", result)
 
 
 if __name__ == "__main__":
