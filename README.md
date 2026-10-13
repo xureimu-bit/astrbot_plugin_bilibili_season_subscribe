@@ -2,11 +2,11 @@
 
 ![B 站合集订阅：自动追更、字幕总结、聊天调用](assets/banner.svg)
 
-# AstrBot · B 站合集订阅
+# <img src="logo.png" width="36" height="36" alt="插件图标"> AstrBot · B 站合集订阅
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-[![版本 1.4.0](https://img.shields.io/badge/version-1.4.0-ff78a6?style=flat-square)](metadata.yaml)
+[![版本 1.4.1](https://img.shields.io/badge/version-1.4.1-ff78a6?style=flat-square)](metadata.yaml)
 [![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
