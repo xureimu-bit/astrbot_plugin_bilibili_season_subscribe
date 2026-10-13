@@ -10,7 +10,7 @@ help: |-
   /bili合集订阅 检查
   /bili合集订阅 重试 [season_id|全部]
   /bili合集订阅 总结 <BV号|视频链接>
-version: 1.4.1
+version: 1.4.2
 author: xureimu-bit
 repo: https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe
 category: integrations

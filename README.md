@@ -6,7 +6,7 @@
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-[![版本 1.4.1](https://img.shields.io/badge/version-1.4.1-ff78a6?style=flat-square)](metadata.yaml)
+[![版本 1.4.2](https://img.shields.io/badge/version-1.4.2-ff78a6?style=flat-square)](metadata.yaml)
 [![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
@@ -241,6 +241,16 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 
 字幕可能要求登录、尚未生成，或接口不可用。可尝试有效的 `bilibili_sessdata` 或 Cookie 文件，但不能保证每条视频都有可读取的字幕。
 也可以配置 STT、ffmpeg 并开启 `asr_enabled`，让插件转写原声音讯。影片画面上的硬字幕不等于 B 站可读取的 CC 字幕；本插件不对画面做 OCR。
+
+</details>
+
+<details>
+<summary>语音转写提示“媒体地址不属于支持的 B 站 CDN”怎么办？</summary>
+
+更新到 1.4.2 或之后的版本并重载插件。此错误发生在音轨下载阶段，尚未调用 STT。
+新版支持 B 站接口返回的 Akamai 海外音轨域名及 mcdn 的 4483 端口；HTTP 音轨地址会先升级为 HTTPS。
+首个地址不可用时会尝试备用地址及其他码率音轨，最多发起 3 次下载。
+仍失败时请查看日志中的具体原因。其他插件的语音识别功能只有接入 AstrBot 的 STT Provider 后，才能由本插件复用。
 
 </details>
 
