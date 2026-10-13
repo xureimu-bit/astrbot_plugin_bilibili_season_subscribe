@@ -73,5 +73,35 @@
     "description": "首次订阅发送历史视频",
     "type": "bool",
     "default": false
+  },
+  "summary_enabled": {
+    "description": "自动推送 AI 视频总结",
+    "type": "bool",
+    "hint": "默认关闭；启用后在成功推送每个视频后另发总结，不影响下载重试",
+    "default": false
+  },
+  "summary_provider_id": {
+    "description": "总结使用的聊天模型 Provider ID",
+    "type": "string",
+    "hint": "留空使用接收会话当前聊天模型；填写 AstrBot Provider ID，不是模型名或 API Key",
+    "default": ""
+  },
+  "summary_timeout_seconds": {
+    "description": "单次总结超时（秒）",
+    "type": "int",
+    "hint": "包含模型选择、资料获取和模型生成；范围 5-300",
+    "default": 60
+  },
+  "summary_max_input_chars": {
+    "description": "总结资料最大字符数",
+    "type": "int",
+    "hint": "范围 500-50000；超长资料截断并在总结中标明",
+    "default": 12000
+  },
+  "summary_max_output_chars": {
+    "description": "总结输出最大字符数",
+    "type": "int",
+    "hint": "范围 100-4000；不含标题、链接和来源说明",
+    "default": 800
   }
 }

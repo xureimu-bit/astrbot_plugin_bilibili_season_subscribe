@@ -15,6 +15,8 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
+from .summarization import VideoSummarizer, parse_video_bvid
+
 
 SEASON_API_ENDPOINTS = (
     "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
@@ -433,6 +435,7 @@ class BilibiliApiClient:
         url: str,
         params: dict[str, Any],
         referer: str,
+        allowed_codes: tuple[int, ...] = (0,),
     ) -> dict[str, Any]:
         async with httpx.AsyncClient(
             timeout=self.timeout_seconds,
@@ -446,7 +449,7 @@ class BilibiliApiClient:
         response.raise_for_status()
         payload = response.json()
         code = safe_int(payload.get("code"), -1)
-        if code != 0:
+        if code not in allowed_codes:
             message = payload.get("message") or payload.get("msg") or "unknown error"
             if code in {-403, -404, -352}:
                 raise RuntimeError(f"B 站接口拒绝访问：code={code}，message={message}")
@@ -849,7 +852,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.2.1",
+    "1.3.0",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -887,6 +890,8 @@ class BilibiliSeasonSubscribePlugin(Star):
         self.page_size = page_size
         self.poll_interval_seconds = max(60, safe_int(config.get("poll_interval_minutes"), 20) * 60)
         self.notify_on_first_subscribe = bool(config.get("notify_on_first_subscribe", False))
+        self.summary_enabled = bool(config.get("summary_enabled", False))
+        self.summarizer = VideoSummarizer(context, self.api_client, config)
         self._poll_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
@@ -909,7 +914,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         args = self._extract_args(event)
         if not args:
             yield event.plain_result(
-                "用法：/bili合集订阅 添加 <合集链接> | 删除 <season_id> | 列表 | 检查 | 重试 [season_id|全部]"
+                "用法：/bili合集订阅 添加 <合集链接> | 删除 <season_id> | 列表 | 检查 | 重试 [season_id|全部] | 总结 <BV号|视频链接>"
             )
             return
 
@@ -945,7 +950,24 @@ class BilibiliSeasonSubscribePlugin(Star):
             yield event.plain_result(await self._handle_retry(event, season_id))
             return
 
-        yield event.plain_result("不支持的子命令。可用子命令：添加、删除、列表、检查、重试")
+        if action == "总结":
+            if len(args) < 2:
+                yield event.plain_result("用法：/bili合集订阅 总结 <BV号|视频链接>")
+                return
+            try:
+                bvid = parse_video_bvid(args[1])
+            except ValueError as exc:
+                yield event.plain_result(str(exc))
+                return
+            try:
+                text = await self.summarizer.summarize({"bvid": bvid}, event.unified_msg_origin)
+                yield event.plain_result(f"{build_video_url(bvid)}\n{text}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("手动总结视频 %s 失败（%s）。", bvid, type(exc).__name__)
+                yield event.plain_result("总结失败：请检查 AstrBot 聊天模型、总结超时配置及 B 站接口是否可用。")
+            return
+
+        yield event.plain_result("不支持的子命令。可用子命令：添加、删除、列表、检查、重试、总结")
 
     async def _handle_add(self, event: AstrMessageEvent, url: str) -> str:
         try:
@@ -1187,6 +1209,7 @@ class BilibiliSeasonSubscribePlugin(Star):
 
         title_text = self._build_video_title_text(subscription, video, result)
         header = self._build_video_message(subscription, video, result)
+        summary_cache: dict[Any, Any] = {}
         for subscriber in subscription.subscribers:
             title_sent = await self._send_title_chain(subscriber.unified_msg_origin, title_text)
             if not title_sent:
@@ -1196,6 +1219,19 @@ class BilibiliSeasonSubscribePlugin(Star):
             if not sent:
                 logger.warning("向订阅者 %s 发送视频失败: %s", subscriber.unified_msg_origin, result.path)
                 return False
+            if self.summary_enabled:
+                try:
+                    summary = await self.summarizer.summarize(video, subscriber.unified_msg_origin, summary_cache)
+                    summary_sent = await self._send_title_chain(
+                        subscriber.unified_msg_origin,
+                        f"标题：{result.title or video.get('title') or result.bvid}\n"
+                        f"{result.url or build_video_url(result.bvid)}\n{summary}",
+                    )
+                    if not summary_sent:
+                        logger.warning("视频 %s 已发送，向 %s 发送总结失败。", result.bvid, subscriber.unified_msg_origin)
+                except Exception as exc:  # noqa: BLE001
+                    # A summary is optional: never retry or duplicate a delivered video for this failure.
+                    logger.warning("视频 %s 已发送，总结失败（%s）。", result.bvid, type(exc).__name__)
 
         if self.downloader.config.retain_hours == 0:
             result.path.unlink(missing_ok=True)
@@ -1233,8 +1269,8 @@ class BilibiliSeasonSubscribePlugin(Star):
 
     async def _send_title_chain(self, origin: str, title_text: str) -> bool:
         try:
-            await self.context.send_message(origin, MessageChain([Comp.Plain(title_text)]))
-            return True
+            sent = await self.context.send_message(origin, MessageChain([Comp.Plain(title_text)]))
+            return sent is not False
         except Exception as exc:  # noqa: BLE001
             logger.warning("发送标题消息失败: %s", exc)
             return False
@@ -1246,25 +1282,25 @@ class BilibiliSeasonSubscribePlugin(Star):
         if video_cls is not None:
             try:
                 chain = MessageChain([video_cls.fromFileSystem(str(path))])
-                await self.context.send_message(origin, chain)
-                return True
+                sent = await self.context.send_message(origin, chain)
+                return sent is not False
             except Exception as exc:  # noqa: BLE001
                 logger.warning("以视频消息发送失败，尝试文件发送: %s", exc)
 
         if file_cls is not None:
             try:
                 chain = MessageChain([file_cls(name=path.name, file=str(path))])
-                await self.context.send_message(origin, chain)
-                return True
+                sent = await self.context.send_message(origin, chain)
+                return sent is not False
             except Exception as exc:  # noqa: BLE001
                 logger.warning("以文件消息发送失败: %s", exc)
 
         try:
-            await self.context.send_message(
+            sent = await self.context.send_message(
                 origin,
                 MessageChain([Comp.Plain(f"{header}\n文件已下载到：{path}")]),
             )
-            return True
+            return sent is not False
         except Exception as exc:  # noqa: BLE001
             logger.warning("纯文本回退发送失败: %s", exc)
             return False
