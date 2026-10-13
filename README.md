@@ -1,182 +1,257 @@
-# AstrBot B 站合集订阅插件
+<div align="center">
 
-这是一个给 AstrBot 用的插件，用来订阅 B 站某个合集（Season/列表），并在合集里出现新视频时自动下载后发送。
-当前版本已经重构为“B 站接口解析 + 直链下载”路线，不再直接依赖 `yt-dlp` 去抓公开视频页。
+![B 站合集订阅：自动追更、字幕总结、聊天调用](assets/banner.svg)
 
-当前版本默认支持这类链接：
+# AstrBot · B 站合集订阅
 
-- `https://space.bilibili.com/<mid>/lists/<season_id>?type=season`
-- `https://space.bilibili.com/<mid>/channel/collectiondetail?sid=<season_id>`
+**订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-## 功能
+[![版本 1.3.1](https://img.shields.io/badge/version-1.3.1-ff78a6?style=flat-square)](metadata.yaml)
+[![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
+[![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
+[![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
 
-- 订阅指定 B 站合集
-- 删除当前会话对某个合集的订阅
-- 查看当前会话的订阅列表
-- 手动立即检查一次
-- 后台定时轮询，发现新视频后自动下载并发送
-- 可调下载清晰度上限
-- 可调视频时长上限
-- 可调文件大小上限
-- 可调发送后文件保留时长
-- 支持手动重试待处理失败项
-- 失败下载自动进入下次轮询重试
-- 改为先解析 B 站媒体流，再下载发送，尽量避开旧版的 `412` 问题
-- 发送视频前会先单独转发视频标题，避免平台吞掉说明文字
-- 可选逐片 AI 总结：发送视频后另发字幕摘要，无字幕时标明仅概述标题/简介
-- 支持手动总结 BV 号或完整视频链接
-- 支持聊天模型调用工具，总结订阅合集的最新一期或指定视频
+[快速开始](#快速开始) · [聊天总结](#直接聊天总结) · [全部指令](#全部指令) · [配置说明](#配置说明) · [常见问题](#常见问题)
 
-## 安装
+</div>
 
-把整个 `astrbot_plugin_bilibili_season_subscribe` 文件夹放到 AstrBot 的插件目录中，然后在 AstrBot 后台安装依赖并启用插件。
+---
 
-推荐测试顺序：
+## 你可以用它做什么
 
-1. 安装 `ffmpeg`，并保证命令行能找到，或者把路径填进 `ffmpeg_path`
-2. 安装插件依赖
-3. 启用插件
-4. 先执行一次 `/bili合集订阅 检查`，确认当前平台支持视频或文件发送
+| 功能 | 使用体验 |
+| :--- | :--- |
+| 📺 **合集追更** | 定时检查合集，发现新视频后下载并推送；先发标题，再发视频 |
+| ✨ **字幕总结** | 读取 B 站字幕生成中文摘要；没有字幕时标明仅概述标题／简介 |
+| 💬 **聊天调用** | 对支持工具调用的模型说“总结一下最近一期视频”，由模型调用插件 |
+| 🔁 **失败重试** | 下载或视频发送失败进入待重试列表，也能手动重试 |
+| ⚙️ **按需下载** | 设置清晰度、时长、大小与文件保留时间 |
+| 👥 **会话订阅** | 同一合集可被多个会话订阅；AI 工具只读取当前会话的订阅 |
 
-插件依赖：
+> [!IMPORTANT]
+> **聊天总结、手动总结、自动推送总结是三种用法。**
+> `summary_enabled` 只控制“新视频推送后自动发摘要”，默认关闭。聊天工具和手动指令不需要开启它。
 
-- `httpx>=0.27,<1`
-- 建议安装 `ffmpeg`
+## 快速开始
 
-说明：
+### 1 · 安装插件
 
-- 如果 B 站返回的是音视频分离流，插件需要配合 `ffmpeg` 才能合并成可发送的视频文件。
-- 如果你不装 `ffmpeg`，插件仍可能处理一部分单文件流，但成功率会低很多。
+在 AstrBot 插件管理中，从 GitHub 仓库或插件 ZIP 安装：
 
-## 配置项
+```text
+https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe
+```
 
-- `poll_interval_minutes`：轮询间隔，默认 `20`
-- `request_timeout_seconds`：请求超时，默认 `15`
-- `page_size`：分页大小，默认 `30`
-- `max_video_height`：最大清晰度高度，默认 `720`，填 `0` 表示不限
-- `max_duration_seconds`：最大视频时长，默认 `1800` 秒，填 `0` 表示不限
-- `max_filesize_mb`：最大文件大小，默认 `80` MB，填 `0` 表示不限
-- `retain_download_hours`：下载文件保留时长，默认 `24` 小时
-- `preferred_video_codec`：优先编码关键字，默认 `avc`
-- `preferred_ext`：优先输出容器，默认 `mp4`
-- `ffmpeg_path`：ffmpeg 路径，默认留空自动查找
-- `bilibili_sessdata`：可选，B 站登录态里的 `SESSDATA`，遇到 `412` 时建议填写
-- `bilibili_cookie_file`：可选，Netscape 格式的 `cookie.txt` 路径
-- `notify_on_first_subscribe`：首次订阅时是否把当前已有视频也纳入下载发送范围，默认 `false`
+也可以将插件文件夹放入 AstrBot 插件目录，安装 `requirements.txt` 中的依赖，启用并重载插件。
 
-## 指令
+- **依赖：** `httpx>=0.27,<1`
+- **建议：** AstrBot 4.5.7 或更新版本；聊天总结需使用支持工具调用的模型
+- **视频下载：** 建议安装 `ffmpeg`；音视频分离流需要它来合并。不在系统路径中时，填写 `ffmpeg_path`
 
-- `/bili合集订阅 添加 <合集链接>`
-- `/bili合集订阅 删除 <season_id>`
-- `/bili合集订阅 列表`
-- `/bili合集订阅 检查`
-- `/bili合集订阅 重试`
-- `/bili合集订阅 重试 <season_id>`
-- `/bili合集订阅 总结 <BV号|视频链接>`
+### 2 · 添加一个合集
 
-## 示例
+在希望接收推送的聊天中发送：
 
 ```text
 /bili合集订阅 添加 https://space.bilibili.com/1865348651/lists/5193004?type=season
 /bili合集订阅 列表
-/bili合集订阅 检查
-/bili合集订阅 重试
-/bili合集订阅 重试 5193004
-/bili合集订阅 删除 5193004
 ```
 
-## 存储说明
+上面的合集仅作为链接格式示例，请替换成你要订阅的合集。
 
-插件会把订阅数据保存到自己的数据目录下，文件名为 `subscriptions.json`。
-下载下来的视频默认保存在插件数据目录下的 `downloads/` 子目录。
+<details>
+<summary>支持哪些合集链接？</summary>
 
-同一个合集可以被多个会话同时订阅；每个会话删除自己的订阅时，不会影响其他会话，只有最后一个订阅者删除后，合集记录才会被清理。
+```text
+https://space.bilibili.com/<mid>/lists/<season_id>?type=season
+https://space.bilibili.com/<mid>/channel/collectiondetail?sid=<season_id>
+```
 
-如果某个新视频因为网络波动、发送失败或缺少 `ffmpeg` 没有成功发出，它会进入待重试列表，下一轮轮询还会继续尝试。
-如果下载时报 `HTTP 412`，通常是 B 站风控或未带登录态，优先尝试填写 `bilibili_sessdata` 或配置有效的 cookie 文件。
+当前支持空间合集（Season／列表）链接。
 
-## 注意
+</details>
 
-- 这个插件当前基于 B 站网页侧接口轮询，不依赖登录态，但网页接口将来如果调整，可能需要同步更新。
-- 主动推送是否成功，也取决于你当前使用的 AstrBot 适配器/平台是否允许 bot 主动发消息，以及该平台是否支持本地视频/文件上传。
+### 3 · 选择你的总结方式
 
+| 你想做什么 | 怎么用 |
+| :--- | :--- |
+| **聊一句，让 AI 找最新一期** | 启用本插件的 AI 工具，对模型说“总结一下最近一期视频” |
+| **总结一条指定视频** | 发送 `/bili合集订阅 总结 <BV号或完整视频链接>` |
+| **每次追更都附上摘要** | 开启插件配置中的 `summary_enabled`，保存并重载 |
 
-## AI 视频总结（v1.3.0）
+> [!TIP]
+> 首次订阅默认**只追踪之后的新增视频**，不会一次推送全部历史内容。
+> 如需连同历史视频发送，订阅前将 `notify_on_first_subscribe` 设为 `true`。
 
-总结的默认范围是**每个成功发送的新增视频**，不合并整次更新，也不总结整个合集。
-首次订阅仍然默认跳过历史视频；只有 `notify_on_first_subscribe=true` 时才会连同历史视频推送及总结。
-超过下载时长/大小限制而被跳过的视频、下载失败的视频，不触发自动总结。
-现有下载器只下载第 1 P，因此多 P 视频的总结也仅使用第 1 P 字幕，并在来源说明中标明。
-即使手动链接含 `?p=2`，目前也处理第 1 P。
+## 直接聊天总结
 
-### 启用及配置
+安装／更新后重载插件，在 AstrBot 中启用本插件及其工具，再使用支持 **Function Calling／工具调用** 的聊天模型。
 
-1. 在 AstrBot 配好可用的聊天模型，建议使用 AstrBot 4.5.7 或更新版本。
-2. 在插件配置中把 `summary_enabled` 设为 `true`，保存并重载插件。
-3. 如需指定模型，填写 `summary_provider_id`；留空时按每个接收会话的当前聊天模型选择。
-4. 先运行 `/bili合集订阅 总结 BV1xx411c7mD`（替换为真实视频的 BV 号）验证模型，再检查订阅推送。
+你可以直接说：
 
-| 配置 | 默认值 | 说明 |
-| --- | --- | --- |
-| `summary_enabled` | `false` | 自动总结开关；升级后保持原有推送行为，手动总结不受此开关影响 |
-| `summary_provider_id` | 空字符串 | AstrBot 的聊天模型 Provider ID；不是模型名称或 API Key |
-| `summary_timeout_seconds` | `60` | 每个接收会话单次总结的整体超时，包含资料获取和模型生成；限制为 5–300 秒 |
-| `summary_max_input_chars` | `12000` | 输入资料的字符上限（不含提示词及 JSON 包装），限制为 500–50000 |
-| `summary_max_output_chars` | `800` | 摘要正文字符上限，限制为 100–4000；超长响应截断并标明，不含截断提示、标题、链接和来源说明 |
+> 💬 总结一下最近一期视频。
+>
+> 💬 总结我订阅的 XX 合集最新一期。
+>
+> 💬 帮我总结这个视频：https://www.bilibili.com/video/BV号
 
-调用优先使用 AstrBot 的 `get_current_chat_provider_id(umo=...)` 和 `llm_generate(...)`。
-旧版缺少 `llm_generate` 时回退到 `get_using_provider(umo=...)` / `get_provider_by_id(...)` 及 `provider.text_chat(...)`。
-摘要生成过程不读写聊天对话历史，也不给摘要模型提供工具，以避免递归调用。
-聊天模型可通过下面的 AI 工具调用插件；工具返回值由 AstrBot 加入本次聊天流程。
-插件将视频标题、简介和取得的字幕发给所选模型服务，调用后会产生模型费用。
-同一次视频发送中，使用同一个 Provider 的会话复用摘要；不同 Provider 单独生成。资料和结果不持久化缓存。
+**只有一个订阅合集时自动选择；有多个合集时请指定合集名称。** 名称匹配不唯一时，工具会返回选项，让模型向你确认。
 
-### 资料来源与失败处理
+“最近一期”按 B 站列表返回的**发布时间**选择，不按排列顺序猜测。列表缺少有效时间时，会要求提供具体视频。没有订阅时，可以先添加合集，或直接提供视频 BV 号／链接。
 
-- 获取视频详情及第 1 P 字幕，使用带 WBI 签名的播放器接口。优先选择中文字幕，同语言内优先人工字幕；最多尝试三条字幕。
-- 字幕下载复用现有 HTTP 超时设置；播放器接口复用已有 B 站 Cookie 配置，字幕 CDN 请求不携带登录 Cookie。
-- 字幕可能要求登录、尚未生成或接口不可用。取得不到字幕时，明确标注“仅标题/简介（字幕不可取得，非视频全文总结）”，不声称分析过画面或音频；不进行语音转写。
-- 自动字幕也可能有识别错误。资料超长时只总结截取部分，并明确标注“资料已截断”。有字幕时为字幕保留大部分输入预算。
-- 推送顺序是标题 → 视频（或原有文件/文本回退）→ 单独的总结文本。模型未配置、超时、返回空内容或总结发送失败时记录日志，成功发送的视频仍记为已处理，不因总结失败重复推送。
-- 视频发送失败仍按原有待重试机制处理；之后成功发送时才尝试总结。
-- 手动指令：`/bili合集订阅 总结 <BV号|https://www.bilibili.com/video/BV号>`，不需要先订阅，不下载视频，不修改订阅状态；暂不支持 `b23.tv` 短链接。
-
-## 聊天时调用总结（v1.3.1）
-
-安装或更新后重载插件，使用支持工具调用（Function Calling）的聊天模型，并在 AstrBot 中启用本插件及其工具。
-然后直接说：
-
-- “总结一下最近一期视频。”
-- “总结我订阅的 XX 合集最新一期。”
-- “帮我总结这个视频：https://www.bilibili.com/video/BV号”
-
-插件通过 AstrBot 的 `@filter.llm_tool` 注册三个工具：
+<details>
+<summary>查看注册到 AstrBot 的三个 AI 工具</summary>
 
 | 工具 | 用途 |
-| --- | --- |
-| `bili_list_subscribed_seasons` | 列出当前聊天会话订阅的合集，帮助选择 |
-| `bili_summarize_latest_video` | 接受合集名称、`season_id` 或 `mid:season_id`；传空字符串时使用本会话唯一的订阅合集 |
+| :--- | :--- |
+| `bili_list_subscribed_seasons` | 列出当前会话订阅的合集，帮助选择 |
+| `bili_summarize_latest_video` | 总结合集最新一期；支持名称、`season_id` 或 `mid:season_id`，未指定时传空字符串 |
 | `bili_summarize_video` | 总结用户提供的 BV 号或完整视频链接 |
 
-“最近一期”按 B 站列表返回的发布时间选择，不按合集列表的排列顺序猜测；若列表缺少有效发布时间，会要求提供具体视频。
-本会话只有一个合集时自动选取；有多个合集且未指定，或名称匹配不唯一时，工具会返回选项让模型向用户确认。
-不会读取其他会话的订阅。没有订阅时可提供视频链接，或先用 `/bili合集订阅 添加 <合集链接>` 订阅。
+工具通过 `@filter.llm_tool` 注册，返回结果交给当前聊天模型组织回复。
+它们不下载／发送视频，也不修改已处理、待重试等订阅状态。
+是否自动调用取决于模型能力和 AstrBot 工具配置；不支持工具调用时仍可使用手动指令。
+模型的工具执行超时应给 `summary_timeout_seconds` 留出余量。
 
-工具调用与 `summary_enabled` 无关：该开关只控制新视频推送后的自动摘要。
-工具不会下载/发送视频，也不会修改已处理、待重试等订阅状态；摘要继续使用 1.3.0 的字幕、来源说明和长度限制。
-是否自动调用由当前聊天模型和 AstrBot 的工具配置决定；不支持工具调用的模型仍可使用手动指令。
-模型的工具执行超时应给插件的 `summary_timeout_seconds` 留出余量。
+</details>
 
-## 开发验证
+## 全部指令
 
-安装 `requirements.txt` 后，在仓库根目录执行：
+| 指令 | 作用 |
+| :--- | :--- |
+| `/bili合集订阅 添加 <合集链接>` | 将当前会话加入合集订阅 |
+| `/bili合集订阅 删除 <season_id>` | 取消本会话的订阅，不影响其他会话 |
+| `/bili合集订阅 列表` | 查看本会话订阅及待重试数量 |
+| `/bili合集订阅 检查` | 立即检查本会话的合集，处理新增及待重试视频 |
+| `/bili合集订阅 重试 [season_id或全部]` | 重试指定合集；不带参数则重试本会话全部待处理项 |
+| `/bili合集订阅 总结 <BV号或视频链接>` | 手动总结指定影片，无需先订阅 |
+
+```text
+/bili合集订阅 检查
+/bili合集订阅 重试 5193004
+/bili合集订阅 总结 https://www.bilibili.com/video/BV1xx411c7mD
+```
+
+BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短链接。
+
+## 配置说明
+
+在 AstrBot 插件配置中修改，保存后重载插件。默认配置保留原有视频推送行为。
+
+### ✨ AI 总结
+
+| 配置项 | 默认值 | 说明 |
+| :--- | :---: | :--- |
+| `summary_enabled` | `false` | 视频推送成功后是否另发 AI 摘要；不影响聊天工具／手动总结 |
+| `summary_provider_id` | 空 | 留空使用接收会话当前聊天模型；可填 AstrBot 的 **Provider ID**，不是模型名或 API Key |
+| `summary_timeout_seconds` | `60` | 单次总结整体超时，含资料获取与模型生成；范围 5–300 秒 |
+| `summary_max_input_chars` | `12000` | 输入资料字符上限，不含提示词及 JSON 包装；范围 500–50000 |
+| `summary_max_output_chars` | `800` | 摘要正文字符上限；范围 100–4000，不含标题、链接、来源说明与截断提示 |
+
+### 📺 订阅与下载
+
+| 配置项 | 默认值 | 说明 |
+| :--- | :---: | :--- |
+| `poll_interval_minutes` | `20` | 轮询间隔，单位分钟 |
+| `max_video_height` | `720` | 最大清晰度高度，`0` 为不限 |
+| `max_duration_seconds` | `1800` | 最大时长，单位秒，`0` 为不限 |
+| `max_filesize_mb` | `80` | 最大文件大小，单位 MB，`0` 为不限 |
+| `retain_download_hours` | `24` | 文件保留小时数；`0` 发完删除，`-1` 长期保留 |
+| `notify_on_first_subscribe` | `false` | 首次订阅时是否把已有视频也纳入推送 |
+
+<details>
+<summary>🔧 接口、编码与登录态配置</summary>
+
+| 配置项 | 默认值 | 说明 |
+| :--- | :---: | :--- |
+| `request_timeout_seconds` | `15` | B 站请求超时，单位秒 |
+| `page_size` | `30` | 合集接口分页大小 |
+| `preferred_video_codec` | `avc` | 优先编码关键字，如 `avc`、`h264`、`hevc` |
+| `preferred_ext` | `mp4` | 优先输出容器，如 `mp4`、`mkv` |
+| `ffmpeg_path` | 空 | 留空自动查找，或填写 ffmpeg 路径 |
+| `bilibili_sessdata` | 空 | 可选 B 站登录态；遇到 `412` 或字幕需要登录时可尝试填写 |
+| `bilibili_cookie_file` | 空 | 可选 Netscape 格式 `cookie.txt` 文件路径 |
+
+播放器接口复用已有 B 站 Cookie 配置；字幕 CDN 请求不携带登录 Cookie。
+
+</details>
+
+## 总结的范围与来源
+
+**B 站现有字幕 → AstrBot 配置的模型 → 中文摘要。**
+
+- 优先读取中文字幕，同语言内优先人工字幕，最多尝试三条字幕。
+- 字幕不可取得时标明“仅标题／简介”，不声称分析过视频画面或音频；不做语音转写，也不读取 B 站 AI 小助手的现成总结。
+- 多 P 视频与现有下载范围一致，**只处理第 1 P**；即使链接有 `?p=2` 也一样，摘要会注明范围。
+- 超长资料截取部分并标明“资料已截断”；自动字幕可能有识别错误。
+- 自动推送摘要按**每个成功发送的视频**生成，不合并整次更新或整个合集；下载失败、超出下载限制而跳过的视频不触发自动摘要。
+- 推送顺序为 **标题 → 视频（或文件／文本回退）→ 摘要**。摘要失败不使已发视频重新进入重试。
+- 视频标题、简介和取得的字幕会发给所选模型服务，可能产生模型调用费用。
+
+## 常见问题
+
+<details>
+<summary>为什么说“总结最新一期”，模型没有调用插件？</summary>
+
+确认已更新到 1.3.1 或之后的版本并重载插件；当前聊天模型需支持工具调用，AstrBot 中也要启用本插件及相关工具。
+`summary_enabled` 不控制聊天工具。可以先用 `/bili合集订阅 总结 <BV号>` 验证摘要功能。
+
+</details>
+
+<details>
+<summary>为什么只有标题／简介概述，没有字幕全文总结？</summary>
+
+字幕可能要求登录、尚未生成，或接口不可用。可尝试有效的 `bilibili_sessdata` 或 Cookie 文件，但不能保证每条视频都有可读取的字幕。
+插件会明确标注来源；没有字幕时不会自行做音频转写。
+
+</details>
+
+<details>
+<summary>下载失败、报 412，或者视频没有发出来怎么办？</summary>
+
+遇到 `HTTP 412` 时优先尝试有效的 B 站登录态或 Cookie 文件。
+音视频分离流需要 `ffmpeg`；同时确认适配器允许主动消息，并支持本地视频／文件上传。
+失败项会进入下一轮重试，也可以执行 `/bili合集订阅 重试`。
+
+</details>
+
+<details>
+<summary>订阅数据和下载文件存在哪里？</summary>
+
+位于插件自身的数据目录：`subscriptions.json` 保存订阅，`downloads/` 保存下载文件。
+删除本会话订阅不影响其他会话；最后一个订阅者删除后，合集记录才会清理。
+
+</details>
+
+<details>
+<summary>开发说明与验证</summary>
+
+下载采用 B 站接口解析与直链下载，不直接依赖 `yt-dlp`。
+摘要优先使用 AstrBot 的 `get_current_chat_provider_id` / `llm_generate`；旧版缺少 `llm_generate` 时回退到 Provider 的 `text_chat`。
+独立摘要生成不读写聊天历史，也不提供工具，避免递归调用。
+同次视频发送中，同 Provider 复用摘要，不同 Provider 分别生成；资料和结果不持久化缓存。
+
+安装 `requirements.txt` 后运行：
 
 ```text
 python -m unittest discover -s tests -v
 python -m compileall -q main.py summarization.py
 ```
 
-测试使用真实 `httpx` 的模拟传输验证字幕请求，AstrBot 平台和 LLM 边界使用替身。
-覆盖新旧模型接口、会话模型选择、输入输出限制、字幕回退、超时/取消及订阅推送/重试回归。
-实际 B 站登录态、模型服务和适配器上传能力需在部署的 AstrBot 环境验证。
-参考：[AstrBot 官方 AI 接口文档](https://docs.astrbot.app/dev/star/guides/ai.html)。
+离线测试使用真实 `httpx` 的模拟传输，AstrBot 平台和 LLM 边界使用替身。
+真实字幕登录态、模型自动工具选择及适配器上传能力需在部署环境验证。
+B 站网页接口未来可能调整，届时可能需要同步更新插件。
+
+[AstrBot 官方 AI 接口文档](https://docs.astrbot.app/dev/star/guides/ai.html) · [版本更新记录](RELEASE_NOTES.md)
+
+</details>
+
+---
+
+<div align="center">
+
+**追更少一步，重点看得快。**
+
+由 [xureimu-bit](https://github.com/xureimu-bit) 维护 · [MIT License](LICENSE)
+
+</div>

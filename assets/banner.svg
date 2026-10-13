@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-labelledby="title desc">
+  <title id="title">B 站合集订阅 · AstrBot</title>
+  <desc id="desc">自动推送新视频，让 AI 帮你抓重点。合集追更、字幕总结、聊天调用。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#171a30"/><stop offset="1" stop-color="#101522"/></linearGradient>
+    <radialGradient id="pink"><stop stop-color="#ed6c9d" stop-opacity=".17"/><stop offset="1" stop-color="#ed6c9d" stop-opacity="0"/></radialGradient>
+    <radialGradient id="cyan"><stop stop-color="#67d9e8" stop-opacity=".14"/><stop offset="1" stop-color="#67d9e8" stop-opacity="0"/></radialGradient>
+    <linearGradient id="accent"><stop stop-color="#ff78a6"/><stop offset="1" stop-color="#66d9e8"/></linearGradient>
+  </defs>
+  <rect width="1280" height="340" rx="24" fill="url(#bg)"/>
+  <ellipse cx="260" cy="38" rx="430" ry="275" fill="url(#pink)"/>
+  <ellipse cx="1110" cy="320" rx="400" ry="300" fill="url(#cyan)"/>
+  <rect x="36" y="30" width="1208" height="2" rx="1" fill="url(#accent)" opacity=".65"/>
+  <g font-family="'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif">
+    <text x="64" y="81" fill="#ff92b6" font-size="14" font-weight="700" letter-spacing="3">ASTRBOT PLUGIN</text>
+    <text x="60" y="157" fill="#f6f7fc" font-size="54" font-weight="700">B 站合集订阅</text>
+    <text x="64" y="206" fill="#bcc4d9" font-size="23">自动推送新视频，让 AI 帮你抓重点。</text>
+    <g font-size="16" font-weight="600">
+      <rect x="64" y="246" width="118" height="37" rx="18.5" fill="#ff78a6" fill-opacity=".12" stroke="#ff78a6" stroke-opacity=".3"/>
+      <text x="123" y="271" text-anchor="middle" fill="#ffb0ca">合集追更</text>
+      <rect x="194" y="246" width="118" height="37" rx="18.5" fill="#66d9e8" fill-opacity=".10" stroke="#66d9e8" stroke-opacity=".3"/>
+      <text x="253" y="271" text-anchor="middle" fill="#a2eaf2">字幕总结</text>
+      <rect x="324" y="246" width="118" height="37" rx="18.5" fill="#a99aff" fill-opacity=".12" stroke="#a99aff" stroke-opacity=".3"/>
+      <text x="383" y="271" text-anchor="middle" fill="#ccbeff">聊天调用</text>
+    </g>
+    <rect x="822" y="59" width="293" height="174" rx="18" fill="#242b43" stroke="#4b536e" transform="rotate(-6 822 59)"/>
+    <rect x="848" y="65" width="295" height="176" rx="18" fill="#20283e" stroke="#62647d"/>
+    <rect x="868" y="85" width="255" height="116" rx="11" fill="#303650"/>
+    <circle cx="995" cy="142" r="30" fill="#ff78a6" fill-opacity=".17"/>
+    <path d="M987 124 L1014 142 L987 160 Z" fill="#ff9fbe"/>
+    <circle cx="883" cy="221" r="4" fill="#ff78a6"/>
+    <text x="897" y="226" fill="#dde1ef" font-size="12" font-weight="700" letter-spacing="1.4">NEW EPISODE</text>
+    <rect x="968" y="188" width="252" height="116" rx="15" fill="#1a2d38" stroke="#5abaca" stroke-opacity=".65"/>
+    <path d="M992 210 L995 219 L1004 222 L995 225 L992 234 L989 225 L980 222 L989 219 Z" fill="#80e0ec"/>
+    <text x="1015" y="227" fill="#b2eef5" font-size="13" font-weight="700" letter-spacing="1.5">AI SUMMARY</text>
+    <rect x="986" y="246" width="185" height="5" rx="2.5" fill="#92b7c4" fill-opacity=".6"/>
+    <rect x="986" y="261" width="210" height="5" rx="2.5" fill="#92b7c4" fill-opacity=".35"/>
+    <rect x="986" y="276" width="139" height="5" rx="2.5" fill="#92b7c4" fill-opacity=".35"/>
+  </g>
+</svg>
