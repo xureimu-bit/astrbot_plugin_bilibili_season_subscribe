@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">B 站合集订阅图标</title>
+  <desc id="desc">粉蓝色视频播放卡片与 AI 摘要气泡</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#252741"/><stop offset="1" stop-color="#111d2b"/></linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff92b9"/><stop offset="1" stop-color="#6de2ef"/></linearGradient>
+    <linearGradient id="play" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffc1d6"/><stop offset="1" stop-color="#ff78a6"/></linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="url(#bg)"/>
+  <rect x="34" y="44" width="164" height="133" rx="27" fill="#151d30" stroke="#74719c" stroke-width="4" transform="rotate(-7 34 44)"/>
+  <rect x="43" y="49" width="165" height="137" rx="27" fill="#222b43" stroke="url(#edge)" stroke-width="6"/>
+  <path d="M105 84 Q105 80 110 83 L151 109 Q157 113 151 117 L110 143 Q105 146 105 141 Z" fill="url(#play)"/>
+  <circle cx="191" cy="53" r="14" fill="#ff78a6" stroke="#20283e" stroke-width="5"/>
+  <rect x="120" y="150" width="101" height="68" rx="19" fill="#172e3b" stroke="#78deeb" stroke-width="5"/>
+  <path d="M140 215 L135 235 L159 217" fill="#172e3b" stroke="#78deeb" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M186 160 L190 171 L201 175 L190 179 L186 190 L182 179 L171 175 L182 171 Z" fill="#ffadd0"/>
+  <path d="M141 175 H159 M141 190 H166 M141 202 H193" stroke="#a6eaf2" stroke-width="5" stroke-linecap="round" opacity=".86"/>
+</svg>
