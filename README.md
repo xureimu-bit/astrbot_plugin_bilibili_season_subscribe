@@ -6,7 +6,7 @@
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-[![版本 1.3.1](https://img.shields.io/badge/version-1.3.1-ff78a6?style=flat-square)](metadata.yaml)
+[![版本 1.4.0](https://img.shields.io/badge/version-1.4.0-ff78a6?style=flat-square)](metadata.yaml)
 [![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
@@ -22,7 +22,8 @@
 | 功能 | 使用体验 |
 | :--- | :--- |
 | 📺 **合集追更** | 定时检查合集，发现新视频后下载并推送；先发标题，再发视频 |
-| ✨ **字幕总结** | 读取 B 站字幕生成中文摘要；没有字幕时标明仅概述标题／简介 |
+| ✨ **字幕总结** | 优先读取 B 站字幕生成中文摘要，并明确标注资料来源 |
+| 🎙️ **无字幕转写** | 可选提取音讯，用 AstrBot STT 模型转成文字后总结；缓存转写以减少重复识别 |
 | 💬 **聊天调用** | 对支持工具调用的模型说“总结一下最近一期视频”，由模型调用插件 |
 | 🔁 **失败重试** | 下载或视频发送失败进入待重试列表，也能手动重试 |
 | ⚙️ **按需下载** | 设置清晰度、时长、大小与文件保留时间 |
@@ -134,6 +135,31 @@ https://space.bilibili.com/<mid>/channel/collectiondetail?sid=<season_id>
 
 BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短链接。
 
+## 没有字幕也能总结（v1.4.0）
+
+开启语音转写后，资料顺序是 **B 站字幕 → 语音转写 → 标题／简介概述**。
+有可取得的字幕时不会调用 STT；字幕不可取得时才下载音轨、提取单声道音讯并分段识别。
+英文原声也可交给支持英文的 STT，再由 DeepSeek 等聊天模型生成中文摘要。
+
+### 先配置一个语音识别模型
+
+一个可选的接法是硅基流动的 `FunAudioLLM/SenseVoiceSmall`：
+
+1. 在 [硅基流动控制台](https://cloud.siliconflow.cn/)建立 API Key。
+2. 在 AstrBot 的语音识别／STT 提供商中新增 **OpenAI Whisper API**（兼容接口）。
+3. API Base 填 `https://api.siliconflow.cn/v1`，模型填 `FunAudioLLM/SenseVoiceSmall`，API Key 填硅基流动的 Key。
+4. 在插件配置中选择该 STT 的 `asr_provider_id`，开启 `asr_enabled`，保存并重载；DeepSeek 仍负责文字总结。
+
+接口字段依据 [AstrBot 官方实现](https://github.com/AstrBotDevs/AstrBot/blob/master/astrbot/core/provider/sources/whisper_api_source.py) 与 [硅基流动接口文档](https://docs.siliconflow.cn/docs/api/audio-transcriptions-post)。服务价格以供应商为准，不能套用另一家的报价。
+也可选择其他兼容的云端 STT，或 AstrBot 支持的本地 Whisper／Xinference。API Key 保存在 AstrBot 提供商配置中，插件不另存 Key。
+
+> [!IMPORTANT]
+> 语音转写需要 **ffmpeg**，会比字幕摘要慢。默认转写预算 300 秒，加摘要预算 60 秒；聊天模型的工具执行超时建议设为 **至少 400 秒**，否则 AstrBot 可能提前取消任务。
+> 转写默认关闭；启用后音讯分段会发送给你选择的 STT 服务，并可能按该服务规则计费。
+
+转写最长默认 20 分钟，每段 2 分钟。超过时长／下载大小上限、没有 STT、提取失败、超时或识别返回空文字时，会明确降级为标题／简介概述；不会把不完整转写当作全文，也不会因摘要失败重推已发视频。
+完整转写缓存 7 天，最多 200 条，按 BV 号、第 1 P 的 cid、STT 提供商及模型区分。重复总结会复用转写，但仍需一次新的文字摘要调用。
+
 ## 配置说明
 
 在 AstrBot 插件配置中修改，保存后重载插件。默认配置保留原有视频推送行为。
@@ -147,6 +173,18 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 | `summary_timeout_seconds` | `60` | 单次总结整体超时，含资料获取与模型生成；范围 5–300 秒 |
 | `summary_max_input_chars` | `12000` | 输入资料字符上限，不含提示词及 JSON 包装；范围 500–50000 |
 | `summary_max_output_chars` | `800` | 摘要正文字符上限；范围 100–4000，不含标题、链接、来源说明与截断提示 |
+
+### 🎙️ 无字幕语音转写
+
+| 配置项 | 默认值 | 说明 |
+| :--- | :---: | :--- |
+| `asr_enabled` | `false` | 字幕不可取得时是否调用 STT；与 `summary_enabled` 独立 |
+| `asr_provider_id` | 空 | 已配置的 AstrBot STT Provider ID；留空选择当前会话的 STT 模型 |
+| `asr_timeout_seconds` | `300` | 排队、下载、提取及所有分段识别的整体预算；范围 30–1800 秒 |
+| `asr_max_duration_seconds` | `1200` | 最长转写时长；范围 60–7200 秒，超过上限不转写 |
+| `asr_chunk_seconds` | `120` | 每次识别一段的秒数；范围 30–300 |
+| `asr_max_download_mb` | `40` | 媒体下载大小上限；范围 1–200 MB |
+| `asr_cache_hours` | `168` | 完整转写文字保存小时数；范围 0–720，`0` 不缓存 |
 
 ### 📺 订阅与下载
 
@@ -178,15 +216,15 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 
 ## 总结的范围与来源
 
-**B 站现有字幕 → AstrBot 配置的模型 → 中文摘要。**
+**B 站字幕／语音转写 → AstrBot 配置的聊天模型 → 中文摘要。**
 
 - 优先读取中文字幕，同语言内优先人工字幕，最多尝试三条字幕。
-- 字幕不可取得时标明“仅标题／简介”，不声称分析过视频画面或音频；不做语音转写，也不读取 B 站 AI 小助手的现成总结。
+- 字幕不可取得时，可由已启用的 STT 转写音讯，标明“语音转写（自动识别，可能有误）”；未启用或转写失败时标明“仅标题／简介”。不分析画面，也不读取 B 站 AI 小助手的现成总结。
 - 多 P 视频与现有下载范围一致，**只处理第 1 P**；即使链接有 `?p=2` 也一样，摘要会注明范围。
 - 超长资料截取部分并标明“资料已截断”；自动字幕可能有识别错误。
 - 自动推送摘要按**每个成功发送的视频**生成，不合并整次更新或整个合集；下载失败、超出下载限制而跳过的视频不触发自动摘要。
 - 推送顺序为 **标题 → 视频（或文件／文本回退）→ 摘要**。摘要失败不使已发视频重新进入重试。
-- 视频标题、简介和取得的字幕会发给所选模型服务，可能产生模型调用费用。
+- 视频标题、简介、字幕或转写文字会发给所选聊天模型；启用转写时音讯还会交给所选 STT，可能分别产生费用。
 
 ## 常见问题
 
@@ -202,7 +240,7 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 <summary>为什么只有标题／简介概述，没有字幕全文总结？</summary>
 
 字幕可能要求登录、尚未生成，或接口不可用。可尝试有效的 `bilibili_sessdata` 或 Cookie 文件，但不能保证每条视频都有可读取的字幕。
-插件会明确标注来源；没有字幕时不会自行做音频转写。
+也可以配置 STT、ffmpeg 并开启 `asr_enabled`，让插件转写原声音讯。影片画面上的硬字幕不等于 B 站可读取的 CC 字幕；本插件不对画面做 OCR。
 
 </details>
 
@@ -219,6 +257,7 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 <summary>订阅数据和下载文件存在哪里？</summary>
 
 位于插件自身的数据目录：`subscriptions.json` 保存订阅，`downloads/` 保存下载文件。
+`transcripts/` 保存完整转写快取，过期及超额记录在写入新快取时清理；`asr_temp/` 用于单次任务，任务结束／失败／取消时删除该任务的音讯文件。
 删除本会话订阅不影响其他会话；最后一个订阅者删除后，合集记录才会清理。
 
 </details>
@@ -229,13 +268,14 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 下载采用 B 站接口解析与直链下载，不直接依赖 `yt-dlp`。
 摘要优先使用 AstrBot 的 `get_current_chat_provider_id` / `llm_generate`；旧版缺少 `llm_generate` 时回退到 Provider 的 `text_chat`。
 独立摘要生成不读写聊天历史，也不提供工具，避免递归调用。
-同次视频发送中，同 Provider 复用摘要，不同 Provider 分别生成；资料和结果不持久化缓存。
+转写关闭时，同次发送中同 Provider 复用摘要；启用时按会话分隔资料，避免混用不同 STT 设置。
+摘要结果不持久化保存；完整语音转写按 `asr_cache_hours` 保存，可设为 `0` 关闭。
 
 安装 `requirements.txt` 后运行：
 
 ```text
 python -m unittest discover -s tests -v
-python -m compileall -q main.py summarization.py
+python -m compileall -q main.py summarization.py transcription.py
 ```
 
 离线测试使用真实 `httpx` 的模拟传输，AstrBot 平台和 LLM 边界使用替身。

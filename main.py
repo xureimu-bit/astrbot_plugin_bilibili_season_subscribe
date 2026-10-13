@@ -16,6 +16,7 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
 from .summarization import VideoSummarizer, parse_video_bvid
+from .transcription import AudioTranscriber
 
 
 SEASON_API_ENDPOINTS = (
@@ -852,7 +853,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.3.1",
+    "1.4.0",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -891,7 +892,8 @@ class BilibiliSeasonSubscribePlugin(Star):
         self.poll_interval_seconds = max(60, safe_int(config.get("poll_interval_minutes"), 20) * 60)
         self.notify_on_first_subscribe = bool(config.get("notify_on_first_subscribe", False))
         self.summary_enabled = bool(config.get("summary_enabled", False))
-        self.summarizer = VideoSummarizer(context, self.api_client, config)
+        self.transcriber = AudioTranscriber(context, self.api_client, config, data_dir)
+        self.summarizer = VideoSummarizer(context, self.api_client, config, self.transcriber)
         self._poll_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
@@ -925,7 +927,8 @@ class BilibiliSeasonSubscribePlugin(Star):
     async def bili_summarize_video(self, event: AstrMessageEvent, video: str) -> str:
         """根据用户提供的 B 站视频 BV 号或完整链接生成 AI 总结。
 
-        用户要求总结具体视频时调用本工具；资料来自字幕，无法取得字幕时仅概述标题/简介。
+        用户要求总结具体视频时调用本工具；优先使用字幕，没有字幕时可通过已启用的语音识别转写。
+        字幕和语音转写都不可用时仅概述标题/简介。
         将工具返回的摘要、视频链接和资料来源一同告知用户，保留截断或无字幕的说明。
         本工具不下载或发送视频，不修改订阅状态，不需要开启自动推送总结。
 
@@ -957,7 +960,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         try:
             return await asyncio.wait_for(
                 self._summarize_latest_for_session(event.unified_msg_origin, season),
-                timeout=self.summarizer.timeout,
+                timeout=self.summarizer.total_timeout,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("AI 工具总结合集最新视频失败（%s）。", type(exc).__name__)

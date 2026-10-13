@@ -103,5 +103,48 @@
     "type": "int",
     "hint": "范围 100-4000；不含标题、链接和来源说明",
     "default": 800
+  },
+  "asr_enabled": {
+    "description": "无字幕时启用语音转写",
+    "type": "bool",
+    "hint": "需先配置 AstrBot STT 模型和 ffmpeg；默认关闭，启用后音讯会交给所选 STT 服务",
+    "default": false
+  },
+  "asr_provider_id": {
+    "description": "语音识别 STT Provider ID",
+    "type": "string",
+    "_special": "select_provider_stt",
+    "hint": "可选已配置的 STT 模型；留空使用当前会话的 STT 模型，不是 DeepSeek 聊天模型 ID",
+    "default": ""
+  },
+  "asr_timeout_seconds": {
+    "description": "语音转写整体超时（秒）",
+    "type": "int",
+    "hint": "含排队、下载、提取及所有识别分段，范围 30-1800；另加 summary_timeout_seconds 为总结整体预算",
+    "default": 300
+  },
+  "asr_max_duration_seconds": {
+    "description": "允许语音转写的最长时长（秒）",
+    "type": "int",
+    "hint": "默认 20 分钟，范围 60-7200；超过上限不转写，不偷偷截取音讯",
+    "default": 1200
+  },
+  "asr_chunk_seconds": {
+    "description": "每段识别音讯时长（秒）",
+    "type": "int",
+    "hint": "默认每 2 分钟一段，范围 30-300；逐段上传 STT，合并文字后总结",
+    "default": 120
+  },
+  "asr_max_download_mb": {
+    "description": "语音转写媒体下载大小上限（MB）",
+    "type": "int",
+    "hint": "范围 1-200；优先只下载低码率音轨，只有单文件流时下载媒体提取音讯",
+    "default": 40
+  },
+  "asr_cache_hours": {
+    "description": "转写文字快取时长（小时）",
+    "type": "int",
+    "hint": "默认 7 天，范围 0-720；0 关闭快取，重复总结可能重新识别并产生费用；最多保存 200 条",
+    "default": 168
   }
 }
