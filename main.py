@@ -853,7 +853,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.4.2",
+    "1.4.3",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -929,7 +929,7 @@ class BilibiliSeasonSubscribePlugin(Star):
 
         用户要求总结具体视频时调用本工具；优先使用字幕，没有字幕时可通过已启用的语音识别转写。
         字幕和语音转写都不可用时仅概述标题/简介。
-        将工具返回的摘要、视频链接和资料来源一同告知用户，保留截断或无字幕的说明。
+        简短转述工具摘要，最多三条要点，不扩写或重复解释；附上视频链接和资料来源，保留截断或无字幕的说明。
         本工具不下载或发送视频，不修改订阅状态，不需要开启自动推送总结。
 
         Args:
@@ -952,7 +952,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         用户说“总结最近一期视频”“总结订阅合集的最新一期”时调用本工具。
         不需要用户知道 BV 号。只有一个订阅合集时自动选择；多个合集且未指定时返回选项，
         应请用户选择，不能擅自挑一个。只能读取当前聊天会话的订阅。
-        返回摘要时保留视频链接、资料来源及无字幕/截断说明。本工具不下载视频、不改订阅状态。
+        简短转述摘要，最多三条要点，不扩写或重复解释；保留视频链接、资料来源及无字幕/截断说明。本工具不下载视频、不改订阅状态。
 
         Args:
             season(string): 用户指定的合集名称、season_id 或 mid:season_id；没有指定合集时传空字符串。

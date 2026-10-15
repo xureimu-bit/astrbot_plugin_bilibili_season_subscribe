@@ -6,7 +6,7 @@
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-[![版本 1.4.2](https://img.shields.io/badge/version-1.4.2-ff78a6?style=flat-square)](metadata.yaml)
+[![版本 1.4.3](https://img.shields.io/badge/version-1.4.3-ff78a6?style=flat-square)](metadata.yaml)
 [![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
@@ -172,7 +172,11 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 | `summary_provider_id` | 空 | 留空使用接收会话当前聊天模型；可填 AstrBot 的 **Provider ID**，不是模型名或 API Key |
 | `summary_timeout_seconds` | `60` | 单次总结整体超时，含资料获取与模型生成；范围 5–300 秒 |
 | `summary_max_input_chars` | `12000` | 输入资料字符上限，不含提示词及 JSON 包装；范围 500–50000 |
-| `summary_max_output_chars` | `800` | 摘要正文字符上限；范围 100–4000，不含标题、链接、来源说明与截断提示 |
+| `summary_max_output_chars` | `250` | 摘要正文字符上限；范围 100–4000，含摘要截断提示，不含标题、链接与来源说明 |
+
+摘要采用“一句话概述＋最多三条要点”，正文尽量在 200 字以内；超过输出上限时优先在完整句末截断。
+从旧版升级不会覆盖已保存的设置：如果后台的 `summary_max_output_chars` 仍为 `800`，可改为 `250`，想更短可设 `150`。
+通过聊天工具调用时也会提示聊天模型简短转述，保留来源与链接。
 
 ### 🎙️ 无字幕语音转写
 
