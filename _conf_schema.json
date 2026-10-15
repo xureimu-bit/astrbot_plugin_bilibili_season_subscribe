@@ -89,13 +89,13 @@
   "summary_timeout_seconds": {
     "description": "单次总结超时（秒）",
     "type": "int",
-    "hint": "包含模型选择、资料获取和模型生成；范围 5-300",
+    "hint": "包含资料获取、全部分段整理与最终生成；范围 5-300。长视频建议 180-300，并调大 AstrBot 工具超时",
     "default": 60
   },
   "summary_max_input_chars": {
-    "description": "总结资料最大字符数",
+    "description": "每次总结调用的资料字符上限",
     "type": "int",
-    "hint": "范围 500-50000；超长资料截断并在总结中标明",
+    "hint": "范围 500-50000；长字幕/转写自动分段整理后合成短摘要，不含提示词及 JSON 包装",
     "default": 12000
   },
   "summary_max_output_chars": {
@@ -162,7 +162,13 @@
   "asr_cache_hours": {
     "description": "转写文字快取时长（小时）",
     "type": "int",
-    "hint": "默认 7 天，范围 0-720；0 关闭快取，重复总结可能重新识别并产生费用；最多保存 200 条",
+    "hint": "默认 7 天，范围 0-720；保存完整转写和成功片段，重试只识别缺少的片段；两类各最多 200 个视频。0 关闭，两类快取不再读写",
     "default": 168
+  },
+  "summary_max_segments": {
+    "description": "长视频总结最多分段数",
+    "type": "int",
+    "default": 16,
+    "hint": "范围 2-64；超限直接说明原因，不截取前半段冒充完整总结。短资料仅调用一次；分段最多约 2N 次文字模型调用，N 为段数，联网短评另计"
   }
 }

@@ -52,15 +52,17 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
     async def test_valid_settings_persist_and_apply_without_erasing_secret(self):
         settings = self.dashboard.settings()
         result = await self.dashboard.save_settings({'revision': settings['revision'],
-            'values': {'summary_max_output_chars': 150, 'meme_enabled': True, 'bilibili_sessdata': ''}})
+            'values': {'summary_max_output_chars': 150, 'summary_max_segments': 8, 'meme_enabled': True, 'bilibili_sessdata': ''}})
         self.assertNotEqual(settings['revision'], result['revision'])
         self.assertEqual(self.plugin.summarizer.max_output, 150)
+        self.assertEqual(self.plugin.summarizer.max_segments, 8)
         self.assertTrue(self.plugin.summarizer.memes.enabled)
         self.assertEqual(self.config['bilibili_sessdata'], 'private-session-value')
         self.assertEqual(json.loads(self.config.path.read_text())['summary_max_output_chars'], 150)
 
     async def test_invalid_types_bounds_and_unknown_fields_rejected_before_write(self):
         for values in ({'summary_enabled': 'false'}, {'asr_timeout_seconds': True}, {'summary_max_output_chars': 40},
+                       {'summary_max_segments': 1}, {'summary_max_segments': 65},
                        {'asr_chunk_seconds': 999}, {'not_a_setting': 'x'}, {'ffmpeg_path': None}):
             with self.subTest(values=values), self.assertRaises(DashboardError):
                 await self.dashboard.save_settings({'revision': self.dashboard.settings()['revision'], 'values': values})

@@ -16,7 +16,7 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
-from .summarization import VideoSummarizer, parse_video_bvid
+from .summarization import SummaryLimitExceeded, VideoSummarizer, parse_video_bvid
 from .transcription import AudioTranscriber
 from .dashboard import PluginDashboard
 
@@ -855,7 +855,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.6.0",
+    "1.7.0",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -952,6 +952,8 @@ class BilibiliSeasonSubscribePlugin(Star):
             return f"{build_video_url(bvid)}\n{text}"
         except ValueError as exc:
             return str(exc)
+        except SummaryLimitExceeded as exc:
+            return f"总结未完成：{exc} 不要编造视频内容。"
         except Exception as exc:  # noqa: BLE001
             logger.warning("AI 工具总结视频失败（%s）。", type(exc).__name__)
             return "总结失败：请检查聊天模型、总结超时配置及 B 站接口。不要编造视频内容。"
@@ -973,6 +975,8 @@ class BilibiliSeasonSubscribePlugin(Star):
                 self._summarize_latest_for_session(event.unified_msg_origin, season),
                 timeout=self.summarizer.total_timeout,
             )
+        except SummaryLimitExceeded as exc:
+            return f"总结未完成：{exc} 不要编造视频内容。"
         except Exception as exc:  # noqa: BLE001
             logger.warning("AI 工具总结合集最新视频失败（%s）。", type(exc).__name__)
             return "无法取得或总结最新视频：请检查 B 站接口、聊天模型及超时配置。不要编造视频内容。"
@@ -1071,6 +1075,8 @@ class BilibiliSeasonSubscribePlugin(Star):
             try:
                 text = await self.summarizer.summarize({"bvid": bvid}, event.unified_msg_origin)
                 yield event.plain_result(f"{build_video_url(bvid)}\n{text}")
+            except SummaryLimitExceeded as exc:
+                yield event.plain_result(f"总结未完成：{exc}")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("手动总结视频 %s 失败（%s）。", bvid, type(exc).__name__)
                 yield event.plain_result("总结失败：请检查 AstrBot 聊天模型、总结超时配置及 B 站接口是否可用。")

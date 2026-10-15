@@ -10,12 +10,12 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 PLUGIN_NAME = "astrbot_plugin_bilibili_season_subscribe"
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 BOUNDS = {
     "poll_interval_minutes": (1, 1440), "request_timeout_seconds": (5, 300), "page_size": (1, 100),
     "max_video_height": (0, 4320), "max_duration_seconds": (0, 86400), "max_filesize_mb": (0, 10000),
     "retain_download_hours": (-1, 8760), "summary_timeout_seconds": (5, 300),
-    "summary_max_input_chars": (500, 50000), "summary_max_output_chars": (100, 4000),
+    "summary_max_segments": (2, 64), "summary_max_input_chars": (500, 50000), "summary_max_output_chars": (100, 4000),
     "asr_timeout_seconds": (30, 1800), "asr_max_duration_seconds": (60, 7200),
     "asr_chunk_seconds": (30, 300), "asr_max_download_mb": (1, 200), "asr_cache_hours": (0, 720),
     "meme_timeout_seconds": (3, 45), "meme_cache_hours": (0, 24),
