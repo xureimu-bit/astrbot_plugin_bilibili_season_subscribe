@@ -1,12 +1,19 @@
-![B 站合集订阅：自动追更、字幕总结、聊天调用](https://raw.githubusercontent.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe/main/assets/banner.svg)
+<div align="center">
 
-# AstrBot · B 站合集订阅
+![B 站合集订阅：自动追更、字幕总结、聊天调用](assets/banner.svg)
+
+# <img src="logo.png" width="36" height="36" alt="插件图标"> AstrBot · B 站合集订阅
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-当前版本 **1.7.0** · [GitHub 仓库](https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe) · [更新记录](https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe/blob/main/RELEASE_NOTES.md) · [MIT 许可证](https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe/blob/main/LICENSE)
+[![版本 1.7.0](https://img.shields.io/badge/version-1.7.0-ff78a6?style=flat-square)](metadata.yaml)
+[![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
+[![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
+[![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
 
 [快速开始](#快速开始) · [管理控制台](#管理控制台) · [聊天总结](#直接聊天总结) · [全部指令](#全部指令) · [配置说明](#配置说明) · [常见问题](#常见问题)
+
+</div>
 
 ---
 
@@ -24,7 +31,7 @@
 | ⚙️ **按需下载** | 设置清晰度、时长、大小与文件保留时间 |
 | 👥 **会话订阅** | 同一合集可被多个会话订阅；AI 工具只读取当前会话的订阅 |
 
-> **注意：**
+> [!IMPORTANT]
 > **聊天总结、手动总结、自动推送总结是三种用法。**
 > `summary_enabled` 只控制“新视频推送后自动发摘要”，默认关闭。聊天工具和手动指令不需要开启它。
 
@@ -75,7 +82,7 @@ https://space.bilibili.com/<mid>/channel/collectiondetail?sid=<season_id>
 | **总结一条指定视频** | 发送 `/bili合集订阅 总结 <BV号或完整视频链接>` |
 | **每次追更都附上摘要** | 开启插件配置中的 `summary_enabled`，保存并重载 |
 
-> **提示：**
+> [!TIP]
 > 首次订阅默认**只追踪之后的新增视频**，不会一次推送全部历史内容。
 > 如需连同历史视频发送，订阅前将 `notify_on_first_subscribe` 设为 `true`。
 
@@ -148,7 +155,7 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 接口字段依据 [AstrBot 官方实现](https://github.com/AstrBotDevs/AstrBot/blob/master/astrbot/core/provider/sources/whisper_api_source.py) 与 [硅基流动接口文档](https://docs.siliconflow.cn/docs/api/audio-transcriptions-post)。服务价格以供应商为准，不能套用另一家的报价。
 也可选择其他兼容的云端 STT，或 AstrBot 支持的本地 Whisper／Xinference。API Key 保存在 AstrBot 提供商配置中，插件不另存 Key。
 
-> **注意：**
+> [!IMPORTANT]
 > 语音转写需要 **ffmpeg**，会比字幕摘要慢。默认转写预算 300 秒，加摘要预算 60 秒；聊天模型的工具执行超时建议设为 **至少 400 秒**，否则 AstrBot 可能提前取消任务。
 > 转写默认关闭；启用后音讯分段会发送给你选择的 STT 服务，并可能按该服务规则计费。
 
@@ -346,12 +353,16 @@ python -m compileall -q main.py summarization.py transcription.py meme_context.p
 真实字幕登录态、模型自动工具选择及适配器上传能力需在部署环境验证。
 B 站网页接口未来可能调整，届时可能需要同步更新插件。
 
-[AstrBot 官方 AI 接口文档](https://docs.astrbot.app/dev/star/guides/ai.html) · [版本更新记录](https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe/blob/main/RELEASE_NOTES.md)
+[AstrBot 官方 AI 接口文档](https://docs.astrbot.app/dev/star/guides/ai.html) · [版本更新记录](RELEASE_NOTES.md)
 
 </details>
 
 ---
 
+<div align="center">
+
 **追更少一步，重点看得快。**
 
-由 [xureimu-bit](https://github.com/xureimu-bit) 维护 · [MIT License](https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe/blob/main/LICENSE)
+由 [xureimu-bit](https://github.com/xureimu-bit) 维护 · [MIT License](LICENSE)
+
+</div>
