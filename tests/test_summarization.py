@@ -230,6 +230,36 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         await service.summarize({"bvid": BVID, "title": "列表标题"}, "a")
         self.assertIn("列表标题", service.context.llm_generate.call_args.kwargs["prompt"])
 
+    async def test_concise_defaults_and_existing_configuration(self):
+        for config, maximum in (({}, 250), ({"summary_max_output_chars": 800}, 800),
+                                ({"summary_max_output_chars": 100}, 100)):
+            with self.subTest(config=config):
+                context = modern_context(text="一句概述。\n- 一个重点。")
+                service = VideoSummarizer(context, api_client(), config)
+                result = await service.summarize({"bvid": BVID}, "a")
+                self.assertEqual(service.max_output, maximum)
+                prompt = context.llm_generate.call_args.kwargs["system_prompt"]
+                self.assertIn("最多三条要点", prompt)
+                self.assertIn(f"尽量控制在 {min(maximum, 200)} 字以内", prompt)
+                self.assertIn(f"最多 {maximum} 字", prompt)
+                self.assertIn("资料来源：仅标题/简介", result)
+                self.assertTrue(result.endswith("一句概述。\n- 一个重点。"))
+
+    async def test_output_limit_includes_marker_and_prefers_complete_sentences(self):
+        for maximum in (100, 250):
+            marker = "…（摘要已截断）"
+            sentence = "重点" * ((maximum - len(marker)) // 3) + "。"
+            for text in (sentence + "后续" * maximum, "长文" * maximum):
+                with self.subTest(maximum=maximum, complete_sentence=text.startswith(sentence)):
+                    context = modern_context(text=text)
+                    service = VideoSummarizer(context, api_client(), {"summary_max_output_chars": maximum})
+                    result = await service.summarize({"bvid": BVID}, "a")
+                    body = result.split("\n", 2)[2]
+                    self.assertLessEqual(len(body), maximum)
+                    self.assertTrue(body.endswith(marker))
+                    if text.startswith(sentence):
+                        self.assertEqual(body, sentence + marker)
+
     async def test_real_httpx_subtitle_download_without_cookies(self):
         seen = []
         def handler(request):

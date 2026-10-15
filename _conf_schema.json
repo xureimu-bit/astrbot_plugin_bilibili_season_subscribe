@@ -101,8 +101,8 @@
   "summary_max_output_chars": {
     "description": "总结输出最大字符数",
     "type": "int",
-    "hint": "范围 100-4000；不含标题、链接和来源说明",
-    "default": 800
+    "hint": "默认 250，范围 100-4000；含摘要截断提示，不含标题、链接和来源说明。已有配置若仍为 800，可手动改为 250",
+    "default": 250
   },
   "asr_enabled": {
     "description": "无字幕时启用语音转写",
