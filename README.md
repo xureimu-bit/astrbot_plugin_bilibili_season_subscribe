@@ -6,7 +6,7 @@
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-[![版本 1.4.3](https://img.shields.io/badge/version-1.4.3-ff78a6?style=flat-square)](metadata.yaml)
+[![版本 1.5.0](https://img.shields.io/badge/version-1.5.0-ff78a6?style=flat-square)](metadata.yaml)
 [![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
@@ -24,6 +24,7 @@
 | 📺 **合集追更** | 定时检查合集，发现新视频后下载并推送；先发标题，再发视频 |
 | ✨ **字幕总结** | 优先读取 B 站字幕生成中文摘要，并明确标注资料来源 |
 | 🎙️ **无字幕转写** | 可选提取音讯，用 AstrBot STT 模型转成文字后总结；缓存转写以减少重复识别 |
+| 🎭 **接梗短评** | 适度接住 UP 主的标题梗；可选联网查相关新梗，最多补一句短评和一条参考 |
 | 💬 **聊天调用** | 对支持工具调用的模型说“总结一下最近一期视频”，由模型调用插件 |
 | 🔁 **失败重试** | 下载或视频发送失败进入待重试列表，也能手动重试 |
 | ⚙️ **按需下载** | 设置清晰度、时长、大小与文件保留时间 |
@@ -178,6 +179,35 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 从旧版升级不会覆盖已保存的设置：如果后台的 `summary_max_output_chars` 仍为 `800`，可改为 `250`，想更短可设 `150`。
 通过聊天工具调用时也会提示聊天模型简短转述，保留来源与链接。
 
+### 💬 标题梗与联网热梗
+
+摘要会适度保留 UP 主标题里的双关、反差或自嘲，顺着标题接梗；夸张标题不会当作视频事实，不懂的梗也不会硬编。
+
+需要最新梗参考时：
+
+1. 在 AstrBot **当前聊天使用的配置文件 → AI → 能力 → 网页搜索** 中启用搜索，选择服务并按需填写 Key。
+2. 在本插件配置里开启 `meme_enabled`，保存并重载插件。
+3. 照常说“总结最近一期视频”，或等待订阅自动推送。只有取得字幕／STT 正文后才联网查询。
+
+插件先完成视频摘要，再使用少量标题和摘要关键词查找相关梗；资料明确相关且长度允许时，最多补一句 40 字以内的“短评”，附一条“梗参考”链接。
+短评计入 `summary_max_output_chars`；事实优先，不会为塞入短评而删减摘要。没有合适资料、搜索关闭／超时／失败时，照常发送普通总结。
+
+| 配置项 | 默认值 | 说明 |
+| :--- | :---: | :--- |
+| `meme_enabled` | `false` | 可选联网热梗短评；标题幽默无需开启联网 |
+| `meme_timeout_seconds` | `15` | 搜索与短评共享的额外时间预算，范围 3–45 秒；超时降级 |
+| `meme_cache_hours` | `6` | 搜索结果内存缓存时长，范围 0–24 小时；`0` 关闭，重载清空，最多 128 条 |
+
+复用 AstrBot 的 Tavily、BoCha、Brave、Firecrawl、百度 AI 搜索、Exa 或 AnySearch 配置；只使用该会话已启用的服务，不另存 Key。AnySearch 无 Key 时也需先在 AstrBot 里显式选择并启用。
+适配 AstrBot 4.28.2 的内置搜索接口；旧版缺少接口时自动降级，普通总结仍可用。Tavily、BoCha、Brave、百度及 Exa 请求约一个月内资料；Firecrawl／AnySearch 使用带当前年月的查询，不保证日期过滤。
+搜索结果可能过时，检索时间不代表梗的流行日期，不保证每条视频都能找到新梗。
+
+搜索按会话、服务、Key 指纹和查询缓存，命中后无需重复搜索；网络请求失败不缓存，模型短评不持久化。
+未命中缓存时会调用所选搜索服务；有参考资料时最多额外调用一次当前总结模型，只传短摘要与限长搜索片段，不会再次传完整字幕／转写。
+搜索查询最长 72 字，不传聊天记录、会话身份或完整字幕，仅使用公开视频的少量标题／摘要；搜索服务可能计费，使用其在 AstrBot 中配置的账号额度。
+
+[AstrBot 网页搜索配置说明](https://docs.astrbot.app/use/websearch.html)
+
 ### 🎙️ 无字幕语音转写
 
 | 配置项 | 默认值 | 说明 |
@@ -282,14 +312,14 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 下载采用 B 站接口解析与直链下载，不直接依赖 `yt-dlp`。
 摘要优先使用 AstrBot 的 `get_current_chat_provider_id` / `llm_generate`；旧版缺少 `llm_generate` 时回退到 Provider 的 `text_chat`。
 独立摘要生成不读写聊天历史，也不提供工具，避免递归调用。
-转写关闭时，同次发送中同 Provider 复用摘要；启用时按会话分隔资料，避免混用不同 STT 设置。
+转写与联网热梗均关闭时，同次发送中同 Provider 复用摘要；任一启用时按会话分隔资料，避免混用不同 STT 或搜索设置。
 摘要结果不持久化保存；完整语音转写按 `asr_cache_hours` 保存，可设为 `0` 关闭。
 
 安装 `requirements.txt` 后运行：
 
 ```text
 python -m unittest discover -s tests -v
-python -m compileall -q main.py summarization.py transcription.py
+python -m compileall -q main.py summarization.py transcription.py meme_context.py
 ```
 
 离线测试使用真实 `httpx` 的模拟传输，AstrBot 平台和 LLM 边界使用替身。
