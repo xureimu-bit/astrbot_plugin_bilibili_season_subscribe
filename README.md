@@ -6,12 +6,12 @@
 
 **订阅你关注的合集，新视频自动送达。想抓重点？直接让 AI 总结。**
 
-[![版本 1.5.0](https://img.shields.io/badge/version-1.5.0-ff78a6?style=flat-square)](metadata.yaml)
+[![版本 1.6.0](https://img.shields.io/badge/version-1.6.0-ff78a6?style=flat-square)](metadata.yaml)
 [![AstrBot 插件](https://img.shields.io/badge/AstrBot-plugin-66d9e8?style=flat-square)](https://docs.astrbot.app/)
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
 
-[快速开始](#快速开始) · [聊天总结](#直接聊天总结) · [全部指令](#全部指令) · [配置说明](#配置说明) · [常见问题](#常见问题)
+[快速开始](#快速开始) · [管理控制台](#管理控制台) · [聊天总结](#直接聊天总结) · [全部指令](#全部指令) · [配置说明](#配置说明) · [常见问题](#常见问题)
 
 </div>
 
@@ -25,6 +25,7 @@
 | ✨ **字幕总结** | 优先读取 B 站字幕生成中文摘要，并明确标注资料来源 |
 | 🎙️ **无字幕转写** | 可选提取音讯，用 AstrBot STT 模型转成文字后总结；缓存转写以减少重复识别 |
 | 🎭 **接梗短评** | 适度接住 UP 主的标题梗；可选联网查相关新梗，最多补一句短评和一条参考 |
+| 🖥️ **管理控制台** | 在 AstrBot 内查看运行状态、管理订阅、调整配置与查看检查记录 |
 | 💬 **聊天调用** | 对支持工具调用的模型说“总结一下最近一期视频”，由模型调用插件 |
 | 🔁 **失败重试** | 下载或视频发送失败进入待重试列表，也能手动重试 |
 | ⚙️ **按需下载** | 设置清晰度、时长、大小与文件保留时间 |
@@ -260,6 +261,27 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 - 推送顺序为 **标题 → 视频（或文件／文本回退）→ 摘要**。摘要失败不使已发视频重新进入重试。
 - 视频标题、简介、字幕或转写文字会发给所选聊天模型；启用转写时音讯还会交给所选 STT，可能分别产生费用。
 
+## 管理控制台
+
+更新到 1.6.0 后重载插件，在 AstrBot 的**插件 → B站合集订阅详情 → B站合集控制台**打开页面；支持固定插件页面的 WebUI 可将其固定到侧栏。
+控制台基于 AstrBot 4.28.2 的 Plugin Pages 与登录接口，无需额外启动服务器或填写另一份密码。需要支持 Plugin Pages 的核心与 Dashboard；旧版仍可使用聊天指令和原配置面板。
+
+| 页面 | 可以做什么 |
+| :--- | :--- |
+| 运行概览 | 查看合集、推送会话、待重试、已处理数量，近 14 天检查活动及功能开关状态 |
+| 订阅管理 | 查看订阅，在已有会话中新增合集，移除指定会话的订阅 |
+| 配置中心 | 分组调整总结、STT、热梗、下载与轮询配置；自动列出聊天／STT 模型 |
+| 检查记录 | 查看实际检查结果、类型和耗时，启动重试任务 |
+
+- 首次绑定新会话仍在目标聊天中执行 `/bili合集订阅 添加 <合集链接>`。管理页不向任意输入的会话新增推送。
+- “立即检查”和“重试待处理”会按既有订阅与筛选配置推送视频及摘要，点击前有确认提示。
+- 配置保存后直接应用；正在检查时先等待任务结束。修改轮询间隔不会打断当前等待，下个周期使用新间隔。
+- SESSDATA 不回传到页面；密码框留空保留旧值，勾选清除才会删除。搜索服务的 Key 仍由 AstrBot 管理。
+- 页面会检测配置冲突；如果原配置面板同时修改了配置，请重新读取后再保存。
+- 检查串行执行，避免手动检查与自动轮询重复推送。检查记录保存在 `dashboard_history.json`，最多 200 条，图表仅统计这些真实记录。
+- “已处理”包含已发送和按规则跳过的视频；目前未采集 Token 或费用数据，因此不显示这类统计。
+- 页面支持深浅主题和窄屏表单；主题由 AstrBot 同步。
+
 ## 常见问题
 
 <details>
@@ -319,7 +341,7 @@ BV 号仅为格式示例，请替换成实际视频。暂不支持 `b23.tv` 短�
 
 ```text
 python -m unittest discover -s tests -v
-python -m compileall -q main.py summarization.py transcription.py meme_context.py
+python -m compileall -q main.py summarization.py transcription.py meme_context.py dashboard.py
 ```
 
 离线测试使用真实 `httpx` 的模拟传输，AstrBot 平台和 LLM 边界使用替身。

@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +18,7 @@ from astrbot.api.star import Context, Star, StarTools, register
 
 from .summarization import VideoSummarizer, parse_video_bvid
 from .transcription import AudioTranscriber
+from .dashboard import PluginDashboard
 
 
 SEASON_API_ENDPOINTS = (
@@ -269,14 +271,14 @@ class Store:
             self._data = {"subscriptions": [self._serialize_item(item) for item in items]}
             self._write_locked()
 
-    async def remove_subscriber(self, season_id: str, origin: str) -> tuple[bool, bool]:
+    async def remove_subscriber(self, season_id: str, origin: str, mid: str | None = None) -> tuple[bool, bool]:
         async with self._lock:
             items = self._deserialize()
             found = False
             season_removed = False
             kept_items: list[SeasonSubscription] = []
             for item in items:
-                if item.season_id != season_id:
+                if item.season_id != season_id or mid is not None and item.mid != mid:
                     kept_items.append(item)
                     continue
                 found = True
@@ -853,12 +855,23 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.5.0",
+    "1.6.0",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
+        self.data_dir = Path(StarTools.get_data_dir())
+        self.store = Store(self.data_dir / "subscriptions.json")
+        self._operation_lock = asyncio.Lock()
+        self._poll_task: asyncio.Task | None = None
+        self._next_check_at = None
+        self._configure_runtime()
+        self.dashboard = PluginDashboard(self, self.data_dir)
+        self.dashboard.register()
+
+    def _configure_runtime(self):
+        config, context, data_dir = self.config, self.context, self.data_dir
         timeout_seconds = max(5, safe_int(config.get("request_timeout_seconds"), 15))
         page_size = max(1, safe_int(config.get("page_size"), 30))
         sessdata = str(config.get("bilibili_sessdata", ""))
@@ -870,8 +883,6 @@ class BilibiliSeasonSubscribePlugin(Star):
             cookie_file=cookie_file,
         )
         self.season_client = self.api_client
-        data_dir = Path(StarTools.get_data_dir())
-        self.store = Store(data_dir / "subscriptions.json")
         self.downloader = DirectMediaDownloader(
             self.api_client,
             data_dir / "downloads",
@@ -894,7 +905,6 @@ class BilibiliSeasonSubscribePlugin(Star):
         self.summary_enabled = bool(config.get("summary_enabled", False))
         self.transcriber = AudioTranscriber(context, self.api_client, config, data_dir)
         self.summarizer = VideoSummarizer(context, self.api_client, config, self.transcriber)
-        self._poll_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
         await self.store.load()
@@ -903,6 +913,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         logger.info("B 站合集订阅下载插件已启动。")
 
     async def terminate(self) -> None:
+        await self.dashboard.stop()
         if self._poll_task is not None:
             self._poll_task.cancel()
             try:
@@ -1200,9 +1211,33 @@ class BilibiliSeasonSubscribePlugin(Star):
                 raise
             except Exception as exc:  # noqa: BLE001
                 logger.exception("B 站合集订阅轮询失败: %s", exc)
+            self._next_check_at = (utc_now() + timedelta(seconds=self.poll_interval_seconds)).isoformat()
             await asyncio.sleep(self.poll_interval_seconds)
 
     async def _check_once(
+        self,
+        origin_filter: str | None = None,
+        manual: bool = False,
+        retry_only: bool = False,
+        season_id_filter: str | None = None,
+    ) -> str:
+        async with self._operation_lock:
+            self.dashboard.begin(manual, retry_only)
+            started = time.monotonic()
+            outcome, message = "complete", ""
+            try:
+                message = await self._check_once_impl(origin_filter, manual, retry_only, season_id_filter)
+                return message
+            except asyncio.CancelledError:
+                outcome, message = "cancelled", "检查已取消"
+                raise
+            except Exception:
+                outcome, message = "error", "检查中断，请查看 AstrBot 日志"
+                raise
+            finally:
+                self.dashboard.finish(time.monotonic() - started, message, outcome)
+
+    async def _check_once_impl(
         self,
         origin_filter: str | None = None,
         manual: bool = False,
