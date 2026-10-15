@@ -117,12 +117,13 @@ class TranscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.service.cache_hours = 0
         self.assertFalse((await self.service.transcribe(base.BVID, self.detail, "a")).cached)
 
-    async def test_partial_stt_failure_is_not_cached_and_error_is_redacted(self):
+    async def test_partial_stt_failure_is_checkpointed_and_error_is_redacted(self):
         self.provider.get_text.side_effect = ["第一段", RuntimeError("api-key-secret https://signed-url")]
         with self.assertRaises(TranscriptionUnavailable) as raised:
             await self.service.transcribe(base.BVID, self.detail, "a")
         self.assertNotIn("secret", str(raised.exception))
         self.assertFalse(self.service.cache_dir.exists())
+        self.assertEqual(len(list(self.service.segment_cache_dir.glob("*.json"))), 1)
         self.assertEqual(list(self.service.work_dir.iterdir()), [])
 
     async def test_empty_transcription_is_not_cached(self):
@@ -283,15 +284,16 @@ class SummaryFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("字幕（zh）", result)
         transcriber.transcribe.assert_not_called()
 
-    async def test_no_subtitles_use_transcript_and_label_cache_and_truncation(self):
+    async def test_no_subtitles_use_all_transcript_segments_and_label_cache(self):
         transcriber = types.SimpleNamespace(enabled=True, timeout=300, transcribe=AsyncMock(return_value=Transcript("转写" * 1000, cached=True)))
         context = base.modern_context()
         service = base.VideoSummarizer(context, base.api_client(), {"summary_max_input_chars": 500}, transcriber)
         result = await service.summarize({"bvid": base.BVID}, "a")
         self.assertIn("语音转写（自动识别", result)
         self.assertIn("使用已缓存转写", result)
-        self.assertIn("资料已截断", result)
-        self.assertIn("语音转写", context.llm_generate.call_args.kwargs["prompt"])
+        self.assertIn("分段处理", result)
+        self.assertNotIn("资料已截断", result)
+        self.assertIn("全部分段笔记", context.llm_generate.call_args.kwargs["prompt"])
         self.assertEqual(transcriber.transcribe.call_args.args[2], "a")
         self.assertEqual(service.total_timeout, 360)
 

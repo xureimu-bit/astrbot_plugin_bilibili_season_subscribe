@@ -38,6 +38,7 @@ class AudioTranscriber:
         self.cache_hours = self._int(config, "asr_cache_hours", 168, 0, 720)
         self.ffmpeg_path = str(config.get("ffmpeg_path", "")).strip()
         self.cache_dir = data_dir / "transcripts"
+        self.segment_cache_dir = data_dir / "transcript_segments"
         self.work_dir = data_dir / "asr_temp"
         self._lock = asyncio.Lock()
 
@@ -113,16 +114,39 @@ class AudioTranscriber:
                 source = root / "source.media"
                 await self._download(urls, source, f"https://www.bilibili.com/video/{bvid}")
                 chunks = await self._extract_chunks(ffmpeg, source, root)
+                saved = self._read_payload(key, self.segment_cache_dir)
+                segments = saved.get("segments", {}) if isinstance(saved, dict) else {}
+                if (not isinstance(segments, dict) or len(segments) > 240
+                        or any(not isinstance(k, str) or len(k) != 64 or not isinstance(v, str)
+                               or not v.strip() or len(v) > 200000 for k, v in segments.items())):
+                    segments = {}
                 text_parts = []
-                for chunk in chunks:
-                    text = await provider.get_text(str(chunk))
+                for index, chunk in enumerate(chunks):
+                    # Include position and total count: repeated silence/audio segments
+                    # must not alias, and changed extraction boundaries cannot reuse text.
+                    digest = hashlib.sha256(f"pcm-v1:{index}:{len(chunks)}:".encode())
+                    with chunk.open("rb") as audio:
+                        for block in iter(lambda: audio.read(65536), b""):
+                            digest.update(block)
+                    segment_key = digest.hexdigest()
+                    text = segments.get(segment_key)
+                    if not text:
+                        text = await provider.get_text(str(chunk))
                     if not isinstance(text, str) or not text.strip():
-                        raise TranscriptionUnavailable("语音识别返回空文字，未保存不完整的转写")
+                        raise TranscriptionUnavailable("语音识别返回空文字，未生成完整转写；已成功片段可在重试时复用")
                     text_parts.append(text.strip())
+                    if sum(map(len, text_parts)) + len(text_parts) - 1 > 200000:
+                        raise TranscriptionUnavailable("转写文字过长，未保存不完整的转写")
+                    segments[segment_key] = text.strip()
+                    self._write_payload(key, {"segments": segments}, self.segment_cache_dir)
                 text = "\n".join(text_parts)
                 if len(text) > 200000:
                     raise TranscriptionUnavailable("转写文字过长，未保存不完整的转写")
-                self._write_cache(key, text)
+                if self._write_cache(key, text):
+                    try:
+                        (self.segment_cache_dir / f"{key}.json").unlink(missing_ok=True)
+                    except OSError:
+                        pass
                 return Transcript(text)
         except TranscriptionUnavailable:
             raise
@@ -246,9 +270,14 @@ class AudioTranscriber:
         return chunks
 
     def _read_cache(self, key):
+        payload = self._read_payload(key, self.cache_dir)
+        text = payload.get("text") if isinstance(payload, dict) else None
+        return text if isinstance(text, str) and text.strip() and len(text) <= 200000 else None
+
+    def _read_payload(self, key, directory):
         if not self.cache_hours:
             return None
-        path = self.cache_dir / f"{key}.json"
+        path = directory / f"{key}.json"
         try:
             if time.time() - path.stat().st_mtime > self.cache_hours * 3600:
                 return None
@@ -257,30 +286,36 @@ class AudioTranscriber:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 return None
-            text = payload.get("text")
-            return text if isinstance(text, str) and text.strip() else None
+            return payload
         except (OSError, ValueError, TypeError):
             return None
 
     def _write_cache(self, key, text):
+        return self._write_payload(key, {"text": text}, self.cache_dir)
+
+    def _write_payload(self, key, payload, directory):
         if not self.cache_hours:
-            return
+            return False
         try:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            paths = sorted(self.cache_dir.glob("*.json"), key=lambda path: path.stat().st_mtime)
+            encoded = json.dumps(payload, ensure_ascii=False)
+            if len(encoded.encode("utf-8")) > 1024 * 1024:
+                return False
+            directory.mkdir(parents=True, exist_ok=True)
+            paths = sorted(directory.glob("*.json"), key=lambda path: path.stat().st_mtime)
             for path in paths:
                 if time.time() - path.stat().st_mtime > self.cache_hours * 3600:
                     path.unlink(missing_ok=True)
-            remaining = sorted(self.cache_dir.glob("*.json"), key=lambda path: path.stat().st_mtime)
+            remaining = sorted(directory.glob("*.json"), key=lambda path: path.stat().st_mtime)
             for path in remaining[:-199]:
                 path.unlink(missing_ok=True)
-            path = self.cache_dir / f"{key}.json"
+            path = directory / f"{key}.json"
             temporary = path.with_suffix(".tmp")
             try:
-                temporary.write_text(json.dumps({"text": text}, ensure_ascii=False), encoding="utf-8")
+                temporary.write_text(encoded, encoding="utf-8")
                 temporary.replace(path)
+                return True
             finally:
                 temporary.unlink(missing_ok=True)
         except OSError:
             # A cache write failure must not discard a paid-for successful transcript.
-            pass
+            return False

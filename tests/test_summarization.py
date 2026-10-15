@@ -216,8 +216,11 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("资料已截断", result)
         self.assertIn("摘要已截断", result)
         material = json.loads(context.llm_generate.call_args.kwargs["prompt"].split("\n", 1)[1])["资料"]
-        self.assertEqual(len(material), 500)
-        self.assertIn("字幕要点", material)
+        self.assertLessEqual(len(material), 500)
+        self.assertIn("全部分段笔记", material)
+        self.assertIn("分段处理", result)
+        for call in context.llm_generate.call_args_list:
+            self.assertLessEqual(len(json.loads(call.kwargs["prompt"].split("\n", 1)[1])["资料"]), 500)
 
     async def test_broken_track_tries_next_then_falls_back(self):
         api = api_client([{"lan": "zh", "subtitle_url": "one"}, {"lan": "en", "subtitle_url": "two"}])
