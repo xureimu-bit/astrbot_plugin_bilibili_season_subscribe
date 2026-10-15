@@ -365,4 +365,10 @@ B 站网页接口未来可能调整，届时可能需要同步更新插件。
 
 由 [xureimu-bit](https://github.com/xureimu-bit) 维护 · [MIT License](LICENSE)
 
+### 来访足迹
+
+![累计访问次数](https://count.getloli.com/@xureimu-bili-season?theme=asoul)
+
+累计访问次数，非独立访客人数。
+
 </div>
