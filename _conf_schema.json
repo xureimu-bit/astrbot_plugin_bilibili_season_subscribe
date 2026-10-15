@@ -104,6 +104,24 @@
     "hint": "默认 250，范围 100-4000；含摘要截断提示，不含标题、链接和来源说明。已有配置若仍为 800，可手动改为 250",
     "default": 250
   },
+  "meme_enabled": {
+    "description": "联网热梗辅助短评",
+    "type": "bool",
+    "hint": "默认关闭；复用当前会话 AstrBot 网页搜索与 Key。发送少量公开视频标题/摘要作为查询；不发送聊天记录或完整转写。有字幕/转写时才搜索，可能产生搜索及额外一次短评模型调用费用",
+    "default": false
+  },
+  "meme_timeout_seconds": {
+    "description": "热梗搜索与短评的额外时间上限（秒）",
+    "type": "int",
+    "hint": "范围 3-45；含排队、搜索与短评模型调用。超时保留普通总结，不影响视频推送",
+    "default": 15
+  },
+  "meme_cache_hours": {
+    "description": "热梗搜索结果缓存时长（小时）",
+    "type": "int",
+    "hint": "范围 0-24；按会话、搜索源和查询隔离。仅内存保存最多 128 条，重载清空；0 关闭缓存，不缓存搜索错误",
+    "default": 6
+  },
   "asr_enabled": {
     "description": "无字幕时启用语音转写",
     "type": "bool",
