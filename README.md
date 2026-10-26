@@ -11,7 +11,7 @@
 [![AI 工具调用](https://img.shields.io/badge/AI-tool_calling-a99aff?style=flat-square)](#直接聊天总结)
 [![MIT](https://img.shields.io/badge/license-MIT-9ca3af?style=flat-square)](LICENSE)
 
-[快速开始](#快速开始) · [管理控制台](#管理控制台) · [聊天总结](#直接聊天总结) · [全部指令](#全部指令) · [配置说明](#配置说明) · [常见问题](#常见问题)
+[快速开始](#快速开始) · [管理控制台](#管理控制台) · [聊天总结](#直接聊天总结) · [全部指令](#全部指令) · [配置说明](#配置说明) · [更新日志](RELEASE_NOTES.md) · [常见问题](#常见问题)
 
 </div>
 
