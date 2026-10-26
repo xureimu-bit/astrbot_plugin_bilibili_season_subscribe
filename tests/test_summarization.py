@@ -320,6 +320,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.tempdir.cleanup()
 
     async def test_disabled_preserves_title_then_video(self):
+        self.plugin.send_title_message = True
         self.plugin.summarizer.summarize = AsyncMock()
         self.assertFalse(self.plugin.summary_enabled)
         self.assertTrue(await self.plugin._send_downloaded_video(self.subscription, self.video, self.result))
@@ -330,6 +331,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[1].args[1][0].video, str(self.file))
 
     async def test_summary_follows_media_for_each_subscriber(self):
+        self.plugin.send_title_message = True
         self.plugin.summary_enabled = True
         self.subscription.subscribers.append(main.Subscriber("b", "b", "now"))
         self.plugin.summarizer.summarize = AsyncMock(return_value="摘要")
@@ -341,7 +343,62 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("摘要", calls[2].args[1][0].text)
         self.assertEqual(self.plugin.summarizer.summarize.call_args_list[1].args[1], "b")
 
+    async def test_title_defaults_off_and_summary_still_contains_title_and_link(self):
+        self.assertFalse(self.plugin.send_title_message)
+        self.plugin.summary_enabled = True
+        self.subscription.subscribers.append(main.Subscriber("b", "b", "now"))
+        self.plugin.summarizer.summarize = AsyncMock(return_value="摘要")
+        self.assertTrue(await self.plugin._send_downloaded_video(self.subscription, self.video, self.result))
+        calls = self.context.send_message.call_args_list
+        self.assertEqual([c.args[0] for c in calls], ["a", "a", "b", "b"])
+        for offset in (0, 2):
+            self.assertEqual(calls[offset].args[1][0].video, str(self.file))
+            text = calls[offset + 1].args[1][0].text
+            self.assertIn("标题：新视频", text)
+            self.assertIn(main.build_video_url(BVID), text)
+            self.assertIn("摘要", text)
+
+    async def test_no_title_or_summary_sends_only_video(self):
+        self.plugin.summarizer.summarize = AsyncMock()
+        self.assertTrue(await self.plugin._send_downloaded_video(self.subscription, self.video, self.result))
+        self.assertEqual(self.context.send_message.await_count, 1)
+        self.assertEqual(self.context.send_message.call_args.args[1][0].video, str(self.file))
+        self.plugin.summarizer.summarize.assert_not_called()
+
+    async def test_no_title_video_failure_stays_pending_then_retries(self):
+        await self.plugin.store.upsert_subscription(self.subscription)
+        self.plugin.summary_enabled = True
+        self.plugin.summarizer.summarize = AsyncMock(return_value="摘要")
+        self.context.send_message.return_value = False
+        await self.plugin._check_once()
+        saved = (await self.plugin.store.list_subscriptions())[0]
+        self.assertEqual(saved.pending_bvids, [BVID])
+        self.assertNotIn(BVID, saved.seen_bvids)
+        self.plugin.summarizer.summarize.assert_not_called()
+        self.context.send_message.return_value = True
+        await self.plugin._check_once(retry_only=True)
+        saved = (await self.plugin.store.list_subscriptions())[0]
+        self.assertIn(BVID, saved.seen_bvids)
+        self.assertEqual(saved.pending_bvids, [])
+
+    async def test_no_title_summary_failure_does_not_requeue_video(self):
+        for failure in ("llm", "send"):
+            with self.subTest(failure=failure):
+                await self.plugin.store.upsert_subscription(self.subscription)
+                self.plugin.summary_enabled = True
+                self.plugin.summarizer.summarize = AsyncMock(return_value="摘要")
+                self.context.send_message.side_effect = None
+                if failure == "llm":
+                    self.plugin.summarizer.summarize.side_effect = RuntimeError("LLM unavailable")
+                else:
+                    self.context.send_message.side_effect = [True, False]
+                await self.plugin._check_once()
+                saved = (await self.plugin.store.list_subscriptions())[0]
+                self.assertIn(BVID, saved.seen_bvids)
+                self.assertEqual(saved.pending_bvids, [])
+
     async def test_summary_failures_do_not_requeue_successful_video(self):
+        self.plugin.send_title_message = True
         for failure in ("llm", "send"):
             with self.subTest(failure=failure):
                 await self.plugin.store.upsert_subscription(self.subscription)
@@ -358,6 +415,7 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(saved.pending_bvids, [])
 
     async def test_video_failure_stays_pending_and_retries(self):
+        self.plugin.send_title_message = True
         await self.plugin.store.upsert_subscription(self.subscription)
         self.plugin.summary_enabled = True
         self.plugin.summarizer.summarize = AsyncMock(return_value="摘要")
