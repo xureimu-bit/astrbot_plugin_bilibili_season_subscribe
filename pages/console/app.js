@@ -4,6 +4,7 @@ const state = { tab: 'overview', group: 'summary', data: null, settings: null, d
 const groups = {
   summary: ['✨ AI 总结', '短一点，重点更清楚。聊天总结无需开启自动推送。', ['summary_enabled', 'summary_provider_id', 'summary_max_output_chars', 'summary_max_input_chars', 'summary_max_segments', 'summary_timeout_seconds']],
   asr: ['🎙 语音转写', '没有字幕时，使用 AstrBot 已配置的 STT。', ['asr_enabled', 'asr_provider_id', 'asr_timeout_seconds', 'asr_max_duration_seconds', 'asr_chunk_seconds', 'asr_max_download_mb', 'asr_cache_hours']],
+  uploads: ['▤ UP 主补漏', '指定节目与版本，额外查找尚未入合集的新正片；先按标题规则过滤，再由模型批量判断。', ['upload_fallback_enabled', 'upload_fallback_series', 'upload_fallback_edition', 'upload_fallback_max_videos', 'upload_fallback_timeout_seconds']],
   meme: ['✦ 标题梗与热梗', '标题接梗直接生效；联网短评需在 AstrBot 中配置网页搜索。', ['meme_enabled', 'meme_timeout_seconds', 'meme_cache_hours']],
   download: ['↓ 下载与推送', '设置视频筛选与文件保留规则。', ['send_title_message', 'max_video_height', 'max_duration_seconds', 'max_filesize_mb', 'retain_download_hours', 'preferred_video_codec', 'preferred_ext', 'notify_on_first_subscribe']],
   network: ['⚙ 轮询与连接', '连接 B 站接口，以及本地 ffmpeg。', ['poll_interval_minutes', 'request_timeout_seconds', 'page_size', 'ffmpeg_path', 'bilibili_sessdata', 'bilibili_cookie_file']],
@@ -68,7 +69,7 @@ function subscriptions() {
   for (const item of data.subscriptions) {
     const sessions = el('div');
     for (const sub of item.subscribers) sessions.append(el('div', { class: 'subscriber' }, el('span', { title: sub.origin }, sub.label), el('button', { class: 'link-button', disabled: data.busy, onClick: () => removeSubscription(item, sub) }, '移除')));
-    body.append(el('tr', {}, el('td', {}, el('div', { class: 'row-title' }, el('a', { href: item.url, target: '_blank', rel: 'noopener noreferrer' }, item.title || '未命名合集')), el('span', { class: 'caption' }, `${item.mid}:${item.season_id}`)), el('td', {}, sessions), el('td', {}, pill(`${item.pending} 待重试`, !item.pending)), el('td', {}, item.processed), el('td', { class: 'muted' }, date(item.last_checked))));
+    body.append(el('tr', {}, el('td', {}, el('div', { class: 'row-title' }, el('a', { href: item.url, target: '_blank', rel: 'noopener noreferrer' }, item.title || '未命名合集')), el('span', { class: 'caption' }, `${item.mid}:${item.season_id}`), item.upload_fallback ? el('p', { class: 'caption' }, `UP补漏 · ${item.upload_status}`) : null), el('td', {}, sessions), el('td', {}, pill(`${item.pending} 待重试`, !item.pending)), el('td', {}, item.processed), el('td', { class: 'muted' }, date(item.last_checked))));
   }
   return [toolbar, el('div', { class: 'card table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ['合集', '推送会话', '待处理', '已处理', '最近检查'].map((label) => el('th', {}, label)))), body)), el('p', { class: 'caption' }, '首次订阅是否推送历史视频，遵循“下载与推送”中的配置。')];
 }

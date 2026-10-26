@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 PLUGIN_NAME = "astrbot_plugin_bilibili_season_subscribe"
-VERSION = "1.7.1"
+VERSION = "1.8.0"
 BOUNDS = {
     "poll_interval_minutes": (1, 1440), "request_timeout_seconds": (5, 300), "page_size": (1, 100),
     "max_video_height": (0, 4320), "max_duration_seconds": (0, 86400), "max_filesize_mb": (0, 10000),
@@ -19,6 +19,7 @@ BOUNDS = {
     "asr_timeout_seconds": (30, 1800), "asr_max_duration_seconds": (60, 7200),
     "asr_chunk_seconds": (30, 300), "asr_max_download_mb": (1, 200), "asr_cache_hours": (0, 720),
     "meme_timeout_seconds": (3, 45), "meme_cache_hours": (0, 24),
+    "upload_fallback_max_videos": (5, 50), "upload_fallback_timeout_seconds": (5, 180),
 }
 SECRET_KEYS = {"bilibili_sessdata"}
 
@@ -141,7 +142,9 @@ class PluginDashboard:
             subscriptions.append({"mid": item.mid, "season_id": item.season_id, "title": item.season_title,
                                   "url": f"https://space.bilibili.com/{item.mid}/lists/{item.season_id}?type=season",
                                   "subscribers": subscribers, "pending": len(item.pending_bvids),
-                                  "processed": len(item.seen_bvids), "last_checked": item.last_checked_at})
+                                  "processed": len(item.seen_bvids), "last_checked": item.last_checked_at,
+                                  "upload_fallback": self.plugin.upload_fallback.applies(item),
+                                  "upload_status": item.upload_last_status})
         counts = Counter(entry["time"][:10] for entry in self.history)
         task = self.plugin._poll_task
         return {"version": VERSION, "running": bool(task and not task.done()), "active": self.active,
