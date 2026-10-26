@@ -171,6 +171,36 @@
     "hint": "默认 7 天，范围 0-720；保存完整转写和成功片段，重试只识别缺少的片段；两类各最多 200 个视频。0 关闭，两类快取不再读写",
     "default": 168
   },
+  "upload_fallback_enabled": {
+    "description": "UP 主投稿补漏",
+    "type": "bool",
+    "hint": "默认关闭；对名称包含指定节目的已订阅合集，额外检查该 UP 主的新投稿，用标题规则和聊天模型筛选指定版本的正片；会产生少量模型用量",
+    "default": false
+  },
+  "upload_fallback_series": {
+    "description": "补漏节目名称",
+    "type": "string",
+    "hint": "用于匹配合集名和视频标题；默认神人电台，支持常用繁简写法。只有带明确阿拉伯数字期号的标题才处理",
+    "default": "神人电台"
+  },
+  "upload_fallback_edition": {
+    "description": "补漏正片版本标记",
+    "type": "string",
+    "hint": "默认熟肉，标题必须明确包含【熟肉】或[熟肉]；音频、纯音频、预告和切片等固定排除，同一期仅选一个 BV",
+    "default": "熟肉"
+  },
+  "upload_fallback_max_videos": {
+    "description": "每次扫描 UP 主最新投稿数",
+    "type": "int",
+    "hint": "范围 5-50，默认 30；同一轮同一 UP 主只拉取一次。标题未变且已判定的候选会复用结果",
+    "default": 30
+  },
+  "upload_fallback_timeout_seconds": {
+    "description": "投稿补漏整体超时（秒）",
+    "type": "int",
+    "hint": "范围 5-180；含拉取投稿与一次批量模型判定，失败不影响原合集追更。复用总结模型 Provider，留空时使用发起检查的会话或首个推送会话的模型",
+    "default": 45
+  },
   "summary_max_segments": {
     "description": "长视频总结最多分段数",
     "type": "int",

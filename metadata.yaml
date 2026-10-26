@@ -1,7 +1,7 @@
 name: astrbot_plugin_bilibili_season_subscribe
 display_name: B站合集订阅
 short_desc: 订阅 B 站合集，自动推送新视频；支持字幕／语音转写总结与 AI 聊天调用。
-desc: 订阅 B 站空间合集并自动下载、推送新视频。可直接让 AI 总结最新一期，优先使用字幕，无字幕时可通过 STT 转写音讯；支持下载限制、失败重试与转写快取。
+desc: 订阅 B 站空间合集并自动下载、推送新视频，可选按标题与 AI 判断补漏 UP 主尚未入合集的新正片。可直接让 AI 总结最新一期，优先字幕，无字幕可通过 STT 转写；支持版本筛选、下载限制、失败重试与转写快取。
 help: |-
   指令：
   /bili合集订阅 添加 <合集链接>
@@ -10,7 +10,7 @@ help: |-
   /bili合集订阅 检查
   /bili合集订阅 重试 [season_id|全部]
   /bili合集订阅 总结 <BV号|视频链接>
-version: 1.7.1
+version: 1.8.0
 author: xureimu-bit
 repo: https://github.com/xureimu-bit/astrbot_plugin_bilibili_season_subscribe
 category: integrations

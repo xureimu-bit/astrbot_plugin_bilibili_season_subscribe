@@ -16,9 +16,10 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
-from .summarization import SummaryLimitExceeded, VideoSummarizer, parse_video_bvid
+from .summarization import NAV_API, SummaryLimitExceeded, VideoSummarizer, parse_video_bvid, sign_wbi
 from .transcription import AudioTranscriber
 from .dashboard import PluginDashboard
+from .upload_fallback import UploadFallback
 
 
 SEASON_API_ENDPOINTS = (
@@ -27,6 +28,7 @@ SEASON_API_ENDPOINTS = (
 )
 VIEW_API = "https://api.bilibili.com/x/web-interface/view"
 PLAYURL_API = "https://api.bilibili.com/x/player/playurl"
+USER_VIDEOS_API = "https://api.bilibili.com/x/space/wbi/arc/search"
 SPACE_LISTS_PATTERN = re.compile(r"space\.bilibili\.com/(?P<mid>\d+)/lists/(?P<season_id>\d+)", re.I)
 
 
@@ -168,6 +170,12 @@ class SeasonSubscription:
     pending_bvids: list[str] = field(default_factory=list)
     subscribers: list[Subscriber] = field(default_factory=list)
     last_checked_at: str | None = None
+    upload_rule_key: str = ""
+    upload_episode_floor: int = 0
+    upload_checked_titles: dict[str, str] = field(default_factory=dict)
+    upload_episode_bvids: dict[str, str] = field(default_factory=dict)
+    upload_matched_videos: list[dict[str, Any]] = field(default_factory=list)
+    upload_last_status: str = "尚未检查"
 
 
 @dataclass
@@ -307,6 +315,12 @@ class Store:
                     pending_bvids=[str(item) for item in raw.get("pending_bvids", [])],
                     subscribers=subscribers,
                     last_checked_at=raw.get("last_checked_at"),
+                    upload_rule_key=str(raw.get("upload_rule_key") or ""),
+                    upload_episode_floor=safe_int(raw.get("upload_episode_floor")),
+                    upload_checked_titles=dict(raw.get("upload_checked_titles") or {}),
+                    upload_episode_bvids=dict(raw.get("upload_episode_bvids") or {}),
+                    upload_matched_videos=list(raw.get("upload_matched_videos") or []),
+                    upload_last_status=str(raw.get("upload_last_status") or "尚未检查"),
                 )
             )
         return items
@@ -354,6 +368,35 @@ class BilibiliApiClient:
             params={"bvid": bvid},
             referer=build_video_url(bvid),
         )
+
+    async def fetch_user_videos(self, mid: str, limit: int = 30) -> list[dict[str, Any]]:
+        if not str(mid).isdigit():
+            raise ValueError("UP 主 UID 无效")
+        nav = await self._get_json(NAV_API, {}, "https://www.bilibili.com/", allowed_codes=(0, -101))
+        params = sign_wbi({"mid": str(mid), "pn": 1, "ps": max(5, min(50, limit)),
+                           "order": "pubdate", "tid": 0, "platform": "web", "web_location": "333.1387",
+                           "keyword": "", "special_type": "", "index": 0,
+                           "order_avoided": "true", "dm_img_list": "[]"},
+                          (nav.get("data") or {}).get("wbi_img") or {}, int(time.time()))
+        payload = await self._get_json(USER_VIDEOS_API, params, f"https://space.bilibili.com/{mid}/upload/video")
+        data = payload.get("data") or {}
+        rows = (data.get("list") or {}).get("vlist")
+        if not isinstance(rows, list):
+            raise RuntimeError("UP 主投稿列表不完整")
+        videos = []
+        for row in rows[:limit]:
+            if isinstance(row, dict) and (row.get("meta") or {}).get("attribute") == 156:
+                # Hidden-video mode may include collection cards, not individual uploads.
+                continue
+            if not isinstance(row, dict):
+                raise RuntimeError("UP 主投稿列表不完整")
+            bvid = str(row.get("bvid") or "")
+            if not re.fullmatch(r"BV[0-9A-Za-z]{10}", bvid) or str(row.get("mid")) != str(mid):
+                raise RuntimeError("UP 主投稿列表归属不匹配")
+            videos.append({"bvid": bvid, "title": str(row.get("title") or ""),
+                           "duration": normalize_duration(row.get("length")), "pubdate": safe_int(row.get("created")),
+                           "author": str(row.get("author") or ""), "mid": str(mid)})
+        return videos
 
     async def fetch_playurl(self, bvid: str, aid: int, cid: int, qn: int = 127) -> dict[str, Any]:
         return await self._get_json(
@@ -855,7 +898,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.7.1",
+    "1.8.0",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -906,6 +949,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         self.summary_enabled = bool(config.get("summary_enabled", False))
         self.transcriber = AudioTranscriber(context, self.api_client, config, data_dir)
         self.summarizer = VideoSummarizer(context, self.api_client, config, self.transcriber)
+        self.upload_fallback = UploadFallback(self.api_client, self.summarizer, config)
 
     async def initialize(self) -> None:
         await self.store.load()
@@ -966,6 +1010,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         用户说“总结最近一期视频”“总结订阅合集的最新一期”时调用本工具。
         不需要用户知道 BV 号。只有一个订阅合集时自动选择；多个合集且未指定时返回选项，
         应请用户选择，不能擅自挑一个。只能读取当前聊天会话的订阅。
+        已开启 UP 主补漏时也检查指定版本的新投稿；接口不可用时可能使用已保存的匹配记录。
         简短转述摘要，最多三条要点，可保留一句标题梗或短评，不扩写；保留视频链接、资料来源、梗参考及无字幕/截断说明。本工具不下载视频、不改订阅状态。
 
         Args:
@@ -974,7 +1019,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         try:
             return await asyncio.wait_for(
                 self._summarize_latest_for_session(event.unified_msg_origin, season),
-                timeout=self.summarizer.total_timeout,
+                timeout=self.summarizer.total_timeout + (self.upload_fallback.timeout if self.upload_fallback.enabled else 0),
             )
         except SummaryLimitExceeded as exc:
             return f"总结未完成：{exc} 不要编造视频内容。"
@@ -1010,8 +1055,14 @@ class BilibiliSeasonSubscribePlugin(Star):
         if len(matched) != 1:
             return "有多个匹配的订阅合集，请先让用户指定要总结哪一个。\n" + self._season_choices(matched)
         item = matched[0]
-        data = await self.season_client.fetch_season(item.mid, item.season_id)
-        videos = [video for video in data["videos"] if video.get("bvid")]
+        try:
+            data = await self.season_client.fetch_season(item.mid, item.season_id)
+        except Exception:
+            if not self.upload_fallback.applies(item) or not item.upload_rule_key:
+                raise
+            data = {"videos": []}
+        source_videos = await self.upload_fallback.collect(item, data["videos"], origin)
+        videos = [video for video in source_videos if video.get("bvid")]
         if not videos:
             return f"合集 {item.season_title} 当前没有可总结的视频。"
         # Playlist order may be manually rearranged; use publication timestamps, never list position.
@@ -1267,6 +1318,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         skipped_count = 0
         failed_count = 0
         retry_candidate_count = 0
+        uploads_cache: dict[str, Any] = {}
 
         for item in subscriptions:
             try:
@@ -1274,9 +1326,17 @@ class BilibiliSeasonSubscribePlugin(Star):
             except Exception as exc:  # noqa: BLE001
                 failed_count += 1
                 logger.warning("检查 B 站合集失败 mid=%s season_id=%s: %s", item.mid, item.season_id, exc)
-                continue
+                if not self.upload_fallback.applies(item):
+                    continue
+                season = {"videos": [], "season_title": item.season_title,
+                          "uploader_name": item.uploader_name, "url": item.url}
 
-            videos = season["videos"]
+            item.season_title = season["season_title"]
+            item.uploader_name = season["uploader_name"]
+            item.url = season["url"]
+            origin = origin_filter or (item.subscribers[0].unified_msg_origin if item.subscribers else "")
+            videos = await self.upload_fallback.collect(item, season["videos"], origin,
+                                                       scan=not retry_only, uploads_cache=uploads_cache)
             videos_by_bvid = {
                 str(video.get("bvid")): video
                 for video in videos
@@ -1293,9 +1353,6 @@ class BilibiliSeasonSubscribePlugin(Star):
                 elif not retry_only and bvid not in seen_set:
                     candidates.append(videos_by_bvid[bvid])
 
-            item.season_title = season["season_title"]
-            item.uploader_name = season["uploader_name"]
-            item.url = season["url"]
             item.last_checked_at = utc_now_iso()
 
             for video in candidates:

@@ -90,6 +90,22 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('private', str(raised.exception))
         self.assertFalse(self.config['summary_enabled'])
 
+    async def test_upload_fallback_settings_apply_and_status_is_scoped_to_matching_collection(self):
+        self.assertFalse(self.plugin.upload_fallback.enabled)
+        self.item.season_title = '合集·神人电台'
+        self.item.upload_last_status = '未发现需判定的新正片标题'
+        await self.plugin.store.upsert_subscription(self.item)
+        await self.dashboard.save_settings({'revision': self.dashboard.settings()['revision'], 'values': {
+            'upload_fallback_enabled': True, 'upload_fallback_max_videos': 20}})
+        self.assertTrue(self.plugin.upload_fallback.enabled)
+        self.assertEqual(self.plugin.upload_fallback.limit, 20)
+        overview = await self.dashboard.overview()
+        self.assertTrue(overview['subscriptions'][0]['upload_fallback'])
+        self.assertEqual(overview['subscriptions'][0]['upload_status'], self.item.upload_last_status)
+        for values in ({'upload_fallback_max_videos': 51}, {'upload_fallback_timeout_seconds': 4}):
+            with self.assertRaises(DashboardError):
+                await self.dashboard.save_settings({'revision': self.dashboard.settings()['revision'], 'values': values})
+
     async def test_secret_clear_requires_explicit_intent(self):
         revision = self.dashboard.settings()['revision']
         with self.assertRaises(DashboardError):
