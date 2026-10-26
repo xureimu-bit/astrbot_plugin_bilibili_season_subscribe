@@ -69,6 +69,15 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.config.path.exists())
         self.assertTrue(self.plugin.summary_enabled)
 
+    async def test_title_setting_defaults_off_and_applies_both_directions(self):
+        self.assertFalse(self.dashboard.settings()['values']['send_title_message'])
+        self.assertFalse(self.plugin.send_title_message)
+        for enabled in (True, False):
+            await self.dashboard.save_settings({'revision': self.dashboard.settings()['revision'],
+                'values': {'send_title_message': enabled}})
+            self.assertEqual(self.plugin.send_title_message, enabled)
+            self.assertEqual(json.loads(self.config.path.read_text())['send_title_message'], enabled)
+
     async def test_revision_conflict_and_failed_write_preserve_config(self):
         revision = self.dashboard.settings()['revision']
         self.config['summary_enabled'] = False

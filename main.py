@@ -855,7 +855,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.7.0",
+    "1.7.1",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -902,6 +902,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         self.page_size = page_size
         self.poll_interval_seconds = max(60, safe_int(config.get("poll_interval_minutes"), 20) * 60)
         self.notify_on_first_subscribe = bool(config.get("notify_on_first_subscribe", False))
+        self.send_title_message = bool(config.get("send_title_message", False))
         self.summary_enabled = bool(config.get("summary_enabled", False))
         self.transcriber = AudioTranscriber(context, self.api_client, config, data_dir)
         self.summarizer = VideoSummarizer(context, self.api_client, config, self.transcriber)
@@ -1350,10 +1351,11 @@ class BilibiliSeasonSubscribePlugin(Star):
         header = self._build_video_message(subscription, video, result)
         summary_cache: dict[Any, Any] = {}
         for subscriber in subscription.subscribers:
-            title_sent = await self._send_title_chain(subscriber.unified_msg_origin, title_text)
-            if not title_sent:
-                logger.warning("向订阅者 %s 发送标题失败: %s", subscriber.unified_msg_origin, title_text)
-                return False
+            if self.send_title_message:
+                title_sent = await self._send_title_chain(subscriber.unified_msg_origin, title_text)
+                if not title_sent:
+                    logger.warning("向订阅者 %s 发送标题失败: %s", subscriber.unified_msg_origin, title_text)
+                    return False
             sent = await self._send_media_chain(subscriber.unified_msg_origin, header, result.path)
             if not sent:
                 logger.warning("向订阅者 %s 发送视频失败: %s", subscriber.unified_msg_origin, result.path)

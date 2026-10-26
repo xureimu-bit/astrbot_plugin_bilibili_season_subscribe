@@ -5,7 +5,7 @@ const groups = {
   summary: ['✨ AI 总结', '短一点，重点更清楚。聊天总结无需开启自动推送。', ['summary_enabled', 'summary_provider_id', 'summary_max_output_chars', 'summary_max_input_chars', 'summary_max_segments', 'summary_timeout_seconds']],
   asr: ['🎙 语音转写', '没有字幕时，使用 AstrBot 已配置的 STT。', ['asr_enabled', 'asr_provider_id', 'asr_timeout_seconds', 'asr_max_duration_seconds', 'asr_chunk_seconds', 'asr_max_download_mb', 'asr_cache_hours']],
   meme: ['✦ 标题梗与热梗', '标题接梗直接生效；联网短评需在 AstrBot 中配置网页搜索。', ['meme_enabled', 'meme_timeout_seconds', 'meme_cache_hours']],
-  download: ['↓ 下载与推送', '设置视频筛选与文件保留规则。', ['max_video_height', 'max_duration_seconds', 'max_filesize_mb', 'retain_download_hours', 'preferred_video_codec', 'preferred_ext', 'notify_on_first_subscribe']],
+  download: ['↓ 下载与推送', '设置视频筛选与文件保留规则。', ['send_title_message', 'max_video_height', 'max_duration_seconds', 'max_filesize_mb', 'retain_download_hours', 'preferred_video_codec', 'preferred_ext', 'notify_on_first_subscribe']],
   network: ['⚙ 轮询与连接', '连接 B 站接口，以及本地 ffmpeg。', ['poll_interval_minutes', 'request_timeout_seconds', 'page_size', 'ffmpeg_path', 'bilibili_sessdata', 'bilibili_cookie_file']],
 };
 function el(tag, props = {}, ...children) {
