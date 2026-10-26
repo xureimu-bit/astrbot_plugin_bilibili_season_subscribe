@@ -171,7 +171,7 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(sys.modules, {'astrbot.api.web': web}):
             self.dashboard.register()
         calls = self.context.register_web_api.call_args_list
-        self.assertEqual(len(calls), 6)
+        self.assertEqual(len(calls), 7)
         overview = calls[0].args[1]
         self.assertEqual((await overview())['status'], 401)
         request.username = 'admin'

@@ -7,10 +7,9 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlsplit
 
 PLUGIN_NAME = "astrbot_plugin_bilibili_season_subscribe"
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 BOUNDS = {
     "poll_interval_minutes": (1, 1440), "request_timeout_seconds": (5, 300), "page_size": (1, 100),
     "max_video_height": (0, 4320), "max_duration_seconds": (0, 86400), "max_filesize_mb": (0, 10000),
@@ -56,7 +55,8 @@ class PluginDashboard:
             return
 
         for endpoint, method in (("overview", "GET"), ("settings", "GET"), ("settings/save", "POST"),
-                                 ("check", "POST"), ("subscriptions/add", "POST"), ("subscriptions/remove", "POST")):
+                                 ("check", "POST"), ("subscriptions/add", "POST"), ("subscriptions/remove", "POST"),
+                                 ("subscriptions/rules", "POST")):
             async def handler(endpoint=endpoint):
                 # Dashboard authentication remains mandatory, including for reads.
                 if not request.username:
@@ -87,7 +87,7 @@ class PluginDashboard:
             self.require_idle()
             self.job = asyncio.create_task(self._check_job(payload.get("retry_only", False)), name="bili-dashboard-check")
             return {"started": True}
-        if endpoint in {"subscriptions/add", "subscriptions/remove"}:
+        if endpoint in {"subscriptions/add", "subscriptions/remove", "subscriptions/rules"}:
             self.require_idle()
             async with self.plugin._operation_lock:
                 return await self.change_subscription(endpoint, payload)
@@ -140,11 +140,14 @@ class PluginDashboard:
             for subscriber in subscribers:
                 origins[subscriber["origin"]] = subscriber["label"]
             subscriptions.append({"mid": item.mid, "season_id": item.season_id, "title": item.season_title,
-                                  "url": f"https://space.bilibili.com/{item.mid}/lists/{item.season_id}?type=season",
+                                  "url": (f"https://space.bilibili.com/{item.mid}/lists/{item.collection_id or item.season_id}?type=season"
+                                          if item.collection_id or not item.series_rule else f'https://space.bilibili.com/{item.mid}/upload/video'),
                                   "subscribers": subscribers, "pending": len(item.pending_bvids),
                                   "processed": len(item.seen_bvids), "last_checked": item.last_checked_at,
                                   "upload_fallback": self.plugin.upload_fallback.applies(item),
-                                  "upload_status": item.upload_last_status})
+                                  "upload_status": item.upload_last_status, "rule": item.series_rule,
+                                  "collection_id": item.collection_id, "decisions": item.upload_decisions,
+                                  "excluded": item.excluded_bvids})
         counts = Counter(entry["time"][:10] for entry in self.history)
         task = self.plugin._poll_task
         return {"version": VERSION, "running": bool(task and not task.done()), "active": self.active,
@@ -225,12 +228,34 @@ class PluginDashboard:
             raise DashboardError("请选择已有推送会话；首次订阅请在聊天里使用添加指令")
         if endpoint.endswith("add"):
             url = payload.get("url")
-            if not isinstance(url, str) or len(url) > 1000 or urlsplit(url).hostname != "space.bilibili.com":
-                raise DashboardError("请填写有效的 B 站合集链接")
+            from .video_input import extract_targets
+            if not isinstance(url, str) or len(url) > 1000 or len(extract_targets(url)) != 1:
+                raise DashboardError("请填写一个有效的合集／视频链接或 BV／AV 号")
             event = SimpleNamespace(unified_msg_origin=origin, sender_name=known.label, session_id=origin.rsplit(":", 1)[-1])
             message = await self.plugin._handle_add(event, url)
             if message.startswith("添加失败"):
                 raise DashboardError("添加失败，请检查合集链接和 B 站接口")
+        elif endpoint.endswith('rules'):
+            item = next((v for v in items if v.mid == payload.get('mid') and v.season_id == payload.get('season_id')
+                         and v.series_rule and any(s.unified_msg_origin == origin for s in v.subscribers)), None)
+            action = payload.get('action', '规则')
+            if item is None or action not in {'规则', '排除', '恢复'}:
+                raise DashboardError('系列订阅或操作不存在', 404)
+            args = [item.season_id]
+            if action == '规则':
+                rule = payload.get('rule')
+                if not isinstance(rule, dict) or any(not isinstance(rule.get(k), str) or len(rule[k]) > 80 for k in ('series', 'edition', 'season')):
+                    raise DashboardError('规则格式无效')
+                args.extend([rule['series'], rule['edition'] or '无', rule['season']])
+            else:
+                video = payload.get('video')
+                if not isinstance(video, str) or len(video) > 1000:
+                    raise DashboardError('视频标识无效')
+                args.append(video)
+            event = SimpleNamespace(unified_msg_origin=origin)
+            message = await self.plugin._handle_series_action(event, action, args)
+            if message.startswith(('操作未完成', '规则未修改', '当前会话')):
+                raise DashboardError(message)
         else:
             mid, season_id = payload.get("mid"), payload.get("season_id")
             if not any(item.mid == mid and item.season_id == season_id

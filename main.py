@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import re
 import shutil
@@ -20,6 +21,8 @@ from .summarization import NAV_API, SummaryLimitExceeded, VideoSummarizer, parse
 from .transcription import AudioTranscriber
 from .dashboard import PluginDashboard
 from .upload_fallback import UploadFallback
+from .series_subscription import SeriesSubscriptions
+from .video_input import AV, BV
 
 
 SEASON_API_ENDPOINTS = (
@@ -108,6 +111,9 @@ def build_video_url(bvid: str) -> str:
 
 def parse_season_url(raw: str) -> tuple[str, str]:
     raw = raw.strip()
+    parsed = urlparse(raw)
+    if parsed.scheme not in {'http', 'https'} or parsed.hostname != 'space.bilibili.com' or parsed.username or parsed.password:
+        raise ValueError("链接不是 B 站空间合集链接。")
     match = SPACE_LISTS_PATTERN.search(raw)
     if match:
         return match.group("mid"), match.group("season_id")
@@ -176,6 +182,13 @@ class SeasonSubscription:
     upload_episode_bvids: dict[str, str] = field(default_factory=dict)
     upload_matched_videos: list[dict[str, Any]] = field(default_factory=list)
     upload_last_status: str = "尚未检查"
+    series_rule: dict[str, str] = field(default_factory=dict)
+    seed_video: dict[str, Any] = field(default_factory=dict)
+    collection_id: str = ""
+    series_started_at: int = 0
+    collection_probe_at: int = 0
+    excluded_bvids: list[str] = field(default_factory=list)
+    upload_decisions: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -286,7 +299,8 @@ class Store:
             season_removed = False
             kept_items: list[SeasonSubscription] = []
             for item in items:
-                if item.season_id != season_id or mid is not None and item.mid != mid:
+                if (item.season_id != season_id or mid is not None and item.mid != mid
+                        or not any(sub.unified_msg_origin == origin for sub in item.subscribers)):
                     kept_items.append(item)
                     continue
                 found = True
@@ -299,9 +313,37 @@ class Store:
             self._write_locked()
             return found, season_removed
 
+    async def subscribe_series(self, subscription, origin, videos=()):
+        """Atomically replace this session's broad collection subscription only.
+
+        Other sessions and explicit subscriptions to other editions are retained.
+        """
+        from .series_rules import rule_matches
+        async with self._lock:
+            items, kept = self._deserialize(), []
+            for item in items:
+                if item.mid == subscription.mid and item.season_id == subscription.season_id:
+                    continue
+                if (not item.series_rule and subscription.collection_id == item.season_id and item.mid == subscription.mid
+                        and any(s.unified_msg_origin == origin for s in item.subscribers)):
+                    subscription.seen_bvids = list(set(subscription.seen_bvids) | set(item.seen_bvids))
+                    pending = [v for v in [*videos, *item.upload_matched_videos]
+                               if v.get('bvid') in item.pending_bvids and rule_matches(subscription.series_rule, v)]
+                    for video in pending:
+                        bvid = video['bvid']
+                        subscription.seen_bvids = [v for v in subscription.seen_bvids if v != bvid]
+                        if bvid not in subscription.pending_bvids:
+                            subscription.pending_bvids.append(bvid)
+                            subscription.upload_matched_videos.append(video)
+                    item.subscribers = [s for s in item.subscribers if s.unified_msg_origin != origin]
+                if item.subscribers:
+                    kept.append(item)
+            self._data = {'subscriptions': [self._serialize_item(item) for item in [*kept, subscription]]}
+            self._write_locked()
+
     def _deserialize(self) -> list[SeasonSubscription]:
         items: list[SeasonSubscription] = []
-        for raw in self._data.get("subscriptions", []):
+        for raw in copy.deepcopy(self._data.get("subscriptions", [])):
             subscribers = [Subscriber(**subscriber) for subscriber in raw.get("subscribers", [])]
             items.append(
                 SeasonSubscription(
@@ -321,6 +363,13 @@ class Store:
                     upload_episode_bvids=dict(raw.get("upload_episode_bvids") or {}),
                     upload_matched_videos=list(raw.get("upload_matched_videos") or []),
                     upload_last_status=str(raw.get("upload_last_status") or "尚未检查"),
+                    series_rule=dict(raw.get('series_rule') or {}),
+                    seed_video=dict(raw.get('seed_video') or {}),
+                    collection_id=str(raw.get('collection_id') or ''),
+                    series_started_at=safe_int(raw.get('series_started_at')),
+                    collection_probe_at=safe_int(raw.get('collection_probe_at')),
+                    excluded_bvids=list(raw.get('excluded_bvids') or []),
+                    upload_decisions=list(raw.get('upload_decisions') or []),
                 )
             )
         return items
@@ -363,11 +412,32 @@ class BilibiliApiClient:
         raise last_error
 
     async def fetch_video_detail(self, bvid: str) -> dict[str, Any]:
+        if not BV.fullmatch(bvid) and not AV.fullmatch(bvid):
+            raise ValueError('视频标识无效')
         return await self._get_json(
             VIEW_API,
-            params={"bvid": bvid},
+            params={'aid': AV.fullmatch(bvid)[1]} if AV.fullmatch(bvid) else {"bvid": bvid},
             referer=build_video_url(bvid),
         )
+
+    async def fetch_user_collections(self, mid: str) -> list[dict[str, Any]]:
+        if not str(mid).isdigit():
+            raise ValueError('UP 主 UID 无效')
+        nav = await self._get_json(NAV_API, {}, 'https://www.bilibili.com/', allowed_codes=(0, -101))
+        rows = []
+        for page in (1, 2):
+            params = sign_wbi({'mid': mid, 'page_num': page, 'page_size': 20},
+                (nav.get('data') or {}).get('wbi_img') or {}, int(time.time()))
+            payload = await self._get_json('https://api.bilibili.com/x/polymer/web-space/seasons_series_list',
+                params, f'https://space.bilibili.com/{mid}/lists')
+            lists = (payload.get('data') or {}).get('items_lists') or {}
+            seasons = lists.get('seasons_list')
+            if not isinstance(seasons, list):
+                raise RuntimeError('UP 主合集目录不完整')
+            rows.extend(v for v in seasons if isinstance(v, dict))
+            if page * 20 >= safe_int((lists.get('page') or {}).get('total')):
+                break
+        return rows
 
     async def fetch_user_videos(self, mid: str, limit: int = 30) -> list[dict[str, Any]]:
         if not str(mid).isdigit():
@@ -898,7 +968,7 @@ class DirectMediaDownloader:
     "astrbot_plugin_bilibili_season_subscribe",
     "Codex",
     "订阅 B 站合集并在有新视频时下载后发送",
-    "1.8.0",
+    "1.9.0",
 )
 class BilibiliSeasonSubscribePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -950,6 +1020,7 @@ class BilibiliSeasonSubscribePlugin(Star):
         self.transcriber = AudioTranscriber(context, self.api_client, config, data_dir)
         self.summarizer = VideoSummarizer(context, self.api_client, config, self.transcriber)
         self.upload_fallback = UploadFallback(self.api_client, self.summarizer, config)
+        self.series_subscriptions = SeriesSubscriptions(self)
 
     async def initialize(self) -> None:
         await self.store.load()
@@ -1017,9 +1088,11 @@ class BilibiliSeasonSubscribePlugin(Star):
             season(string): 用户指定的合集名称、season_id 或 mid:season_id；没有指定合集时传空字符串。
         """
         try:
+            extra = self.upload_fallback.timeout if (self.upload_fallback.enabled or
+                any(item.series_rule for item in await self._session_subscriptions(event.unified_msg_origin))) else 0
             return await asyncio.wait_for(
                 self._summarize_latest_for_session(event.unified_msg_origin, season),
-                timeout=self.summarizer.total_timeout + (self.upload_fallback.timeout if self.upload_fallback.enabled else 0),
+                timeout=self.summarizer.total_timeout + extra,
             )
         except SummaryLimitExceeded as exc:
             return f"总结未完成：{exc} 不要编造视频内容。"
@@ -1056,9 +1129,9 @@ class BilibiliSeasonSubscribePlugin(Star):
             return "有多个匹配的订阅合集，请先让用户指定要总结哪一个。\n" + self._season_choices(matched)
         item = matched[0]
         try:
-            data = await self.season_client.fetch_season(item.mid, item.season_id)
+            data = await self.series_subscriptions.source(item, scan=False)
         except Exception:
-            if not self.upload_fallback.applies(item) or not item.upload_rule_key:
+            if not self.upload_fallback.applies(item) or not (item.upload_rule_key or item.series_rule):
                 raise
             data = {"videos": []}
         source_videos = await self.upload_fallback.collect(item, data["videos"], origin)
@@ -1074,30 +1147,52 @@ class BilibiliSeasonSubscribePlugin(Star):
         text = await self.summarizer.summarize(video, origin)
         return f"合集：{item.season_title}\n视频：{video.get('title') or video['bvid']}\n{build_video_url(str(video['bvid']))}\n{text}"
 
+    @filter.llm_tool(name='bili_subscribe_series')
+    async def bili_subscribe_series(self, event: AstrMessageEvent, video: str = '') -> str:
+        """在用户明确要求订阅、追更某个视频所属系列时调用，创建当前会话的推送订阅。
+
+        支持视频链接、b23.tv、BV、AV、合集链接；引用 QQ 视频卡片时 video 可为空。
+        优先验证所属合集，找不到则按种子视频的 UP、节目与版本追更。只从订阅后追新。
+        普通分享视频、请求总结时不要调用。遇到多个视频或识别不清时请用户指定，不编造参数。
+
+        Args:
+            video(string): 用户提供的链接或 BV／AV；用户明确要求订阅被引用卡片时传空字符串。
+        """
+        async with self._operation_lock:
+            return await self._handle_add(event, video)
+
     @filter.command("bili合集订阅")
     async def bili_season_subscribe(self, event: AstrMessageEvent):
         args = self._extract_args(event)
         if not args:
             yield event.plain_result(
-                "用法：/bili合集订阅 添加 <合集链接> | 删除 <season_id> | 列表 | 检查 | 重试 [season_id|全部] | 总结 <BV号|视频链接>"
+                "用法：/bili合集订阅 添加 <合集/视频链接|BV|AV>（可引用视频卡片） | 删除 <订阅ID> | 列表 | 检查 | 重试 [订阅ID|全部] | 规则 <订阅ID> | 排除/恢复/补发 <订阅ID> <BV|AV|视频链接> | 总结 <BV号|视频链接>"
             )
             return
 
         action = args[0]
-        if action == "添加":
-            if len(args) < 2:
-                yield event.plain_result(
-                    "请提供合集链接，例如：/bili合集订阅 添加 https://space.bilibili.com/1865348651/lists/5193004?type=season"
-                )
-                return
-            yield event.plain_result(await self._handle_add(event, args[1]))
+        if action in {"添加", "订阅"}:
+            async with self._operation_lock:
+                message = await self._handle_add(event, ' '.join(args[1:]))
+            yield event.plain_result(message)
+            return
+
+        if action in {'规则', '排除', '恢复', '补发'}:
+            async with self._operation_lock:
+                message = await self._handle_series_action(event, action, args[1:])
+            yield event.plain_result(message)
+            if action == '补发' and message.startswith('已加入待重试'):
+                yield event.plain_result(await self._check_once(origin_filter=event.unified_msg_origin,
+                    manual=True, retry_only=True, season_id_filter=args[1]))
             return
 
         if action == "删除":
             if len(args) < 2:
                 yield event.plain_result("请提供要删除的 season_id，例如：/bili合集订阅 删除 5193004")
                 return
-            yield event.plain_result(await self._handle_remove(event, args[1]))
+            async with self._operation_lock:
+                message = await self._handle_remove(event, args[1])
+            yield event.plain_result(message)
             return
 
         if action == "列表":
@@ -1136,11 +1231,34 @@ class BilibiliSeasonSubscribePlugin(Star):
 
         yield event.plain_result("不支持的子命令。可用子命令：添加、删除、列表、检查、重试、总结")
 
-    async def _handle_add(self, event: AstrMessageEvent, url: str) -> str:
+    async def _handle_add(self, event: AstrMessageEvent, url: str = '') -> str:
+        try:
+            # Keep legacy collection query links working alongside the new inputs.
+            try:
+                mid, sid = parse_season_url(url)
+            except ValueError:
+                return await asyncio.wait_for(self.series_subscriptions.add(event, url), timeout=120)
+            existing = next((v for v in await self._session_subscriptions(event.unified_msg_origin)
+                             if v.mid == mid and v.series_rule and v.collection_id == sid), None)
+            if existing:
+                return '你已通过系列订阅追踪这个合集：\n' + self.series_subscriptions.describe(existing)
+            return await self._handle_add_collection(event, url)
+        except ValueError as exc:
+            return f'添加失败：{exc}'
+        except Exception as exc:
+            logger.warning('从视频添加系列订阅未完成（%s）。', type(exc).__name__)
+            return '添加失败：请检查 B 站接口、登录态、聊天模型及超时配置，未创建新订阅。'
+
+    async def _handle_add_collection(self, event: AstrMessageEvent, url: str) -> str:
         try:
             mid, season_id = parse_season_url(url)
         except ValueError as exc:
             return f"添加失败：{exc}"
+
+        existing_series = next((v for v in await self._session_subscriptions(event.unified_msg_origin)
+                                if v.mid == mid and v.series_rule and v.collection_id == season_id), None)
+        if existing_series:
+            return '你已通过系列订阅追踪这个合集：\n' + self.series_subscriptions.describe(existing_series)
 
         try:
             season = await self.season_client.fetch_season(mid, season_id)
@@ -1206,6 +1324,68 @@ class BilibiliSeasonSubscribePlugin(Star):
             return f"已删除 season_id={season_id} 的订阅，且没有其他订阅者，所以合集记录也一并清理了。"
         return f"已删除当前会话对 season_id={season_id} 的订阅。"
 
+    async def _handle_series_action(self, event, action, args):
+        from .series_rules import episode_key, rule_matches, validate_rule
+        if not args:
+            return '用法：规则 <订阅ID> [节目名称 版本或无 季数]；排除/恢复/补发 <订阅ID> <BV|AV|视频链接>'
+        item = next((v for v in await self._session_subscriptions(event.unified_msg_origin)
+                     if v.season_id == args[0] and v.series_rule), None)
+        if item is None:
+            return '当前会话没有这个系列订阅；请先查看「列表」，原合集订阅可继续使用原指令。'
+        if action == '规则':
+            if len(args) > 1:
+                if len(args) not in {3, 4}:
+                    return '修改用法：规则 <订阅ID> <节目名称> <版本或无> [季数]；名称中请勿包含空格'
+                try:
+                    rule = validate_rule({'series': args[1], 'edition': '' if args[2] == '无' else args[2],
+                                          'season': args[3] if len(args) == 4 else item.series_rule['season']}, item.seed_video)
+                except ValueError as exc:
+                    return f'规则未修改：{exc}。切换到另一版本请用该版本的种子视频重新订阅。'
+                if item.series_rule != rule:
+                    item.series_rule = rule
+                    item.season_title = rule['series']
+                    item.upload_checked_titles = {}
+                    item.upload_episode_bvids = {}
+                    item.upload_matched_videos = [v for v in item.upload_matched_videos if rule_matches(rule, v)]
+                    kept = {v['bvid'] for v in item.upload_matched_videos}
+                    item.pending_bvids = [v for v in item.pending_bvids if v in kept]
+                    item.upload_decisions = []
+                await self.store.upsert_subscription(item)
+            rows = '\n'.join(f"{v['bvid']}：{v['result']}" for v in item.upload_decisions[-8:])
+            return self.series_subscriptions.describe(item) + '\n排除：' + (', '.join(item.excluded_bvids[-20:]) or '无') + ('\n最近判断：\n' + rows if rows else '')
+        if len(args) != 2:
+            return f'用法：{action} <订阅ID> <BV|AV|视频链接>'
+        try:
+            kind, detail = await self.series_subscriptions.resolve(args[1])
+            if kind != 'video' or str(detail['owner']['mid']) != item.mid:
+                raise ValueError('视频不属于该系列的 UP 主')
+            bvid = detail['bvid']
+            if action == '排除':
+                item.excluded_bvids = list(dict.fromkeys([*item.excluded_bvids, bvid]))[-500:]
+                item.pending_bvids = [v for v in item.pending_bvids if v != bvid]
+                item.upload_matched_videos = [v for v in item.upload_matched_videos if v['bvid'] != bvid]
+            elif action == '恢复':
+                item.excluded_bvids = [v for v in item.excluded_bvids if v != bvid]
+                item.upload_checked_titles.pop(bvid, None)
+                item.upload_episode_bvids = {k: v for k, v in item.upload_episode_bvids.items() if v != bvid}
+            elif action == '补发':
+                video = {'bvid': bvid, 'title': detail.get('title', ''), 'pubdate': safe_int(detail.get('pubdate')),
+                         'duration': safe_int(detail.get('duration')), 'mid': item.mid}
+                if not rule_matches(item.series_rule, video):
+                    raise ValueError('视频不符合该系列的节目、版本或季数规则')
+                item.excluded_bvids = [v for v in item.excluded_bvids if v != bvid]
+                item.upload_episode_bvids[episode_key(item.series_rule, video)] = bvid
+                item.seen_bvids = [v for v in item.seen_bvids if v != bvid]
+                item.pending_bvids = list(dict.fromkeys([*item.pending_bvids, bvid]))
+                item.upload_matched_videos = [v for v in item.upload_matched_videos if v['bvid'] != bvid] + [video]
+            await self.store.upsert_subscription(item)
+            return ('已加入待重试，将按原下载限制补发：' if action == '补发' else f'已{action}：') + bvid
+        except ValueError as exc:
+            return f'操作未完成：{exc}'
+        except Exception as exc:
+            logger.warning('系列人工修正未完成（%s）。', type(exc).__name__)
+            return '操作未完成：无法验证视频，请检查 B 站接口及登录态。'
+
     async def _handle_list(self, event: AstrMessageEvent) -> str:
         subscriptions = await self.store.list_subscriptions()
         current_items = [
@@ -1221,6 +1401,9 @@ class BilibiliSeasonSubscribePlugin(Star):
                 f"- {item.season_title or item.season_id} | season_id={item.season_id} | "
                 f"UP={item.uploader_name or '未知'} | 已处理={len(item.seen_bvids)} | 待重试={len(item.pending_bvids)}"
             )
+            if item.series_rule:
+                lines.append(f"  版本={item.series_rule['edition'] or '无版本标签'} | 季数={item.series_rule['season']} | "
+                             + (f'合集={item.collection_id}＋投稿补漏' if item.collection_id else 'UP 系列投稿'))
         lines.append("")
         lines.append(
             "当前下载配置："
@@ -1322,7 +1505,7 @@ class BilibiliSeasonSubscribePlugin(Star):
 
         for item in subscriptions:
             try:
-                season = await self.season_client.fetch_season(item.mid, item.season_id)
+                season = await self.series_subscriptions.source(item, scan=not retry_only)
             except Exception as exc:  # noqa: BLE001
                 failed_count += 1
                 logger.warning("检查 B 站合集失败 mid=%s season_id=%s: %s", item.mid, item.season_id, exc)
@@ -1337,6 +1520,11 @@ class BilibiliSeasonSubscribePlugin(Star):
             origin = origin_filter or (item.subscribers[0].unified_msg_origin if item.subscribers else "")
             videos = await self.upload_fallback.collect(item, season["videos"], origin,
                                                        scan=not retry_only, uploads_cache=uploads_cache)
+            if item.series_rule and not retry_only:
+                try:
+                    await self.series_subscriptions.attach_from_match(item)
+                except Exception as exc:
+                    logger.info('系列 %s 暂未接上合集（%s），继续按投稿追更。', item.season_id, type(exc).__name__)
             videos_by_bvid = {
                 str(video.get("bvid")): video
                 for video in videos

@@ -63,15 +63,15 @@ function overview() {
 }
 function subscriptions() {
   const data = state.data;
-  const toolbar = el('div', { class: 'toolbar' }, el('div', {}, el('h2', {}, '订阅管理'), el('p', {}, '按会话管理合集；移除一个会话不会影响其他订阅者。')), el('button', { class: 'button primary', onClick: openAdd, disabled: data.busy }, '+ 添加合集'));
+  const toolbar = el('div', { class: 'toolbar' }, el('div', {}, el('h2', {}, '订阅管理'), el('p', {}, '从合集或单条视频开始追更；系列版本独立保存。')), el('button', { class: 'button primary', onClick: openAdd, disabled: data.busy }, '+ 添加订阅'));
   if (!data.subscriptions.length) return [toolbar, empty('还没有订阅的合集', '先在需要推送的聊天里发送 /bili合集订阅 添加 <合集链接>，之后可在这里继续管理。')];
   const body = el('tbody');
   for (const item of data.subscriptions) {
     const sessions = el('div');
     for (const sub of item.subscribers) sessions.append(el('div', { class: 'subscriber' }, el('span', { title: sub.origin }, sub.label), el('button', { class: 'link-button', disabled: data.busy, onClick: () => removeSubscription(item, sub) }, '移除')));
-    body.append(el('tr', {}, el('td', {}, el('div', { class: 'row-title' }, el('a', { href: item.url, target: '_blank', rel: 'noopener noreferrer' }, item.title || '未命名合集')), el('span', { class: 'caption' }, `${item.mid}:${item.season_id}`), item.upload_fallback ? el('p', { class: 'caption' }, `UP补漏 · ${item.upload_status}`) : null), el('td', {}, sessions), el('td', {}, pill(`${item.pending} 待重试`, !item.pending)), el('td', {}, item.processed), el('td', { class: 'muted' }, date(item.last_checked))));
+    body.append(el('tr', {}, el('td', {}, el('div', { class: 'row-title' }, el('a', { href: item.url, target: '_blank', rel: 'noopener noreferrer' }, item.title || '未命名合集')), el('span', { class: 'caption' }, `${item.mid}:${item.season_id}`), item.rule?.series ? el('p', { class: 'caption' }, `${item.rule.edition || '无版本标签'} · ${item.collection_id ? '合集＋投稿补漏' : 'UP 系列投稿'}`, el('br'), el('button', { class: 'link-button', disabled: data.busy, onClick: () => openRules(item) }, '规则与判断记录')) : null, item.upload_fallback ? el('p', { class: 'caption' }, `UP补漏 · ${item.upload_status}`) : null), el('td', {}, sessions), el('td', {}, pill(`${item.pending} 待重试`, !item.pending)), el('td', {}, item.processed), el('td', { class: 'muted' }, date(item.last_checked))));
   }
-  return [toolbar, el('div', { class: 'card table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ['合集', '推送会话', '待处理', '已处理', '最近检查'].map((label) => el('th', {}, label)))), body)), el('p', { class: 'caption' }, '首次订阅是否推送历史视频，遵循“下载与推送”中的配置。')];
+  return [toolbar, el('div', { class: 'card table-wrap' }, el('table', {}, el('thead', {}, el('tr', {}, ['合集 / 系列', '推送会话', '待处理', '已处理', '最近检查'].map((label) => el('th', {}, label)))), body)), el('p', { class: 'caption' }, '视频系列默认只追订阅后的新投稿；直接订阅合集时，历史推送遵循“下载与推送”配置。')];
 }
 function history() {
   const data = state.data;
@@ -149,6 +149,34 @@ function openAdd() {
 async function removeSubscription(item, sub) {
   if (!await confirmAction('移除此会话订阅', `确定从“${sub.label}”移除“${item.title}”？其他会话的订阅会保留。`)) return;
   try { const response = await bridge.apiPost('subscriptions/remove', { mid: item.mid, season_id: item.season_id, origin: sub.origin }); notify(response.message); await refresh(); } catch (error) { notify(error.message, true); }
+}
+function openRules(item) {
+  const dialog = el('dialog', { class: 'rules-dialog' });
+  const series = el('input', { value: item.rule.series, required: true, maxLength: 60 });
+  const edition = el('input', { value: item.rule.edition, maxLength: 20, placeholder: '无版本标签时留空' });
+  const season = el('input', { value: item.rule.season, required: true, pattern: '0|[1-9][0-9]{0,2}' });
+  const feedback = el('p', { role: 'status' });
+  const context = { mid: item.mid, season_id: item.season_id, origin: item.subscribers[0].origin };
+  const form = el('form', { onSubmit: async (event) => {
+    event.preventDefault(); event.submitter.disabled = true;
+    try { await bridge.apiPost('subscriptions/rules', { ...context, action: '规则', rule: { series: series.value, edition: edition.value, season: season.value } }); dialog.close(); notify('系列规则已保存'); await refresh(); }
+    catch (error) { feedback.textContent = error.message; }
+    finally { event.submitter.disabled = false; }
+  } }, el('h2', {}, '系列规则与判断记录'), el('p', {}, '规则必须与种子视频相符。切换另一版本请用该版本的视频重新订阅；季数不同不会自动混追。'),
+  el('div', { class: 'rule-fields' }, el('label', { class: 'field' }, '节目名称', series), el('label', { class: 'field' }, '版本标签', edition), el('label', { class: 'field' }, '季数（未标注为 0）', season)), feedback,
+  el('div', { class: 'dialog-actions' }, el('button', { type: 'button', class: 'button secondary', onClick: () => dialog.close() }, '关闭'), el('button', { type: 'submit', class: 'button primary' }, '保存规则')));
+  const input = el('input', { placeholder: 'BV／AV／视频链接', required: true, maxLength: 1000 });
+  const correction = el('form', { onSubmit: async (event) => {
+    event.preventDefault(); const button = event.submitter; button.disabled = true;
+    try { const result = await bridge.apiPost('subscriptions/rules', { ...context, action: button.value, video: input.value }); feedback.textContent = result.message; await refresh(); }
+    catch (error) { feedback.textContent = error.message; }
+    finally { button.disabled = false; }
+  } }, el('label', { class: 'field' }, '手动修正', input), el('div', { class: 'dialog-actions' }, el('button', { type: 'submit', value: '恢复', class: 'button secondary' }, '恢复匹配'), el('button', { type: 'submit', value: '排除', class: 'button secondary' }, '排除此视频')));
+  const records = el('div', { class: 'rule-records' }, el('h3', {}, '最近判断'), ...(item.decisions || []).slice(-20).reverse().map(row => el('p', {}, el('strong', {}, row.result), el('br'), `${row.bvid} · ${row.title}`)));
+  if (!item.decisions?.length) records.append(el('p', {}, '检查后显示实际判断记录。'));
+  records.append(el('p', {}, `已排除：${(item.excluded || []).join('、') || '无'}`));
+  dialog.append(form, correction, records); document.body.append(dialog);
+  dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
 }
 $('add-cancel').addEventListener('click', () => $('add-dialog').close());
 $('add-form').addEventListener('submit', async (event) => {

@@ -9,7 +9,7 @@
 <body>
   <main class="shell">
     <header class="header">
-      <div class="brand"><span class="brand-icon" aria-hidden="true">▶<b>✦</b></span><div><h1>B站合集控制台 <small id="version">1.8.0</small></h1><p>追更、总结与接梗，一屏掌握。</p></div></div>
+      <div class="brand"><span class="brand-icon" aria-hidden="true">▶<b>✦</b></span><div><h1>B站合集控制台 <small id="version">1.9.0</small></h1><p>追更、总结与接梗，一屏掌握。</p></div></div>
       <div class="header-actions"><span id="status" class="status">连接中</span><button id="refresh" class="button secondary">刷新</button><button id="check" class="button primary">立即检查</button></div>
     </header>
     <div id="notice" class="notice" role="status" hidden></div>
@@ -23,7 +23,7 @@
     <footer>仅管理本插件的数据与设置 <span>字幕优先 · 无字幕可转写 · 热梗按需联网</span></footer>
   </main>
   <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">确认操作</h2><p id="confirm-text"></p><div class="dialog-actions"><button value="cancel" class="button secondary">取消</button><button value="confirm" class="button primary">确认</button></div></form></dialog>
-  <dialog id="add-dialog"><form id="add-form"><h2>添加合集订阅</h2><p class="muted">添加到已有推送会话，之后按原有规则推送新视频。</p><label class="field">合集链接<input id="add-url" type="url" required placeholder="https://space.bilibili.com/…/lists/…?type=season"></label><label class="field">推送会话<select id="add-origin" required></select></label><div class="dialog-actions"><button type="button" id="add-cancel" class="button secondary">取消</button><button type="submit" class="button primary">添加订阅</button></div></form></dialog>
+  <dialog id="add-dialog"><form id="add-form"><h2>添加追更订阅</h2><p class="muted">优先查找所属合集；视频系列按识别出的节目与版本追更，只追订阅后的更新。</p><label class="field">合集／视频链接或 BV／AV<input id="add-url" type="text" required maxlength="1000" placeholder="BV…、av…、b23.tv 或 B 站链接"></label><label class="field">推送会话<select id="add-origin" required></select></label><div class="dialog-actions"><button type="button" id="add-cancel" class="button secondary">取消</button><button type="submit" class="button primary">添加订阅</button></div></form></dialog>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
